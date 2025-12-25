@@ -1,0 +1,9 @@
+[package]
+name = "rust-gwbasic"
+version = "0.1.0"
+authors = ["chris17453"]
+edition = "2021"
+description = "Reimplementation of GW-BASIC in safe, modern Rust."
+license = "MIT"
+
+[dependencies]

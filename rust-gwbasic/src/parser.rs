@@ -370,19 +370,18 @@ impl Parser {
     fn parse_rem(&mut self) -> Result<AstNode> {
         self.advance(); // Skip REM
 
-        let mut comment = String::new();
+        // The rest of the line is a comment - just store as empty for now
+        // In a full implementation, we'd preserve the comment text
         while !self.is_at_end() {
             match &self.current_token().token_type {
                 TokenType::Eof | TokenType::Newline => break,
                 _ => {
-                    // Collect remaining tokens as comment text
-                    comment.push_str(&format!("{:?} ", self.current_token().token_type));
                     self.advance();
                 }
             }
         }
 
-        Ok(AstNode::Rem(comment))
+        Ok(AstNode::Rem(String::new()))
     }
 
     fn parse_expression(&mut self) -> Result<AstNode> {

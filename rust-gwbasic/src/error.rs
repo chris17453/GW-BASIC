@@ -31,6 +31,9 @@ pub enum Error {
     
     /// Line number error
     LineNumberError(String),
+    
+    /// Program termination (END statement)
+    ProgramEnd,
 }
 
 impl fmt::Display for Error {
@@ -44,6 +47,7 @@ impl fmt::Display for Error {
             Error::OutOfMemory => write!(f, "Out of memory"),
             Error::IoError(msg) => write!(f, "I/O error: {}", msg),
             Error::LineNumberError(msg) => write!(f, "Line number error: {}", msg),
+            Error::ProgramEnd => write!(f, "Program ended"),
         }
     }
 }

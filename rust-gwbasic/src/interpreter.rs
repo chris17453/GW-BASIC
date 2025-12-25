@@ -82,7 +82,7 @@ impl Interpreter {
             AstNode::Goto(line) => self.execute_goto(line),
             AstNode::Gosub(line) => self.execute_gosub(line),
             AstNode::Return => self.execute_return(),
-            AstNode::End => Err(Error::RuntimeError("END statement".to_string())),
+            AstNode::End => Err(Error::ProgramEnd),
             AstNode::Input(vars) => self.execute_input(vars),
             AstNode::Dim(name, dimensions) => self.execute_dim(name, dimensions),
             AstNode::Rem(_) => Ok(()), // Comments are no-ops
@@ -413,7 +413,7 @@ impl Interpreter {
             if let Some(statements) = self.lines.get(&line_num).cloned() {
                 for stmt in statements {
                     if let Err(e) = self.execute_node(stmt) {
-                        if e.to_string().contains("END statement") {
+                        if matches!(e, Error::ProgramEnd) {
                             return Ok(());
                         }
                         return Err(e);

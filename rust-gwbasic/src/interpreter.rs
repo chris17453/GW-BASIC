@@ -93,10 +93,6 @@ impl Interpreter {
             AstNode::Input(vars) => self.execute_input(vars),
             AstNode::Dim(name, dimensions) => self.execute_dim(name, dimensions),
             AstNode::Rem(_) => Ok(()), // Comments are no-ops
-            AstNode::Program(_) => {
-                // This shouldn't happen - Programs should be handled at the top level
-                Err(Error::RuntimeError("Unexpected nested Program node".to_string()))
-            }
             _ => Err(Error::RuntimeError(format!("Cannot execute node: {:?}", node))),
         }
     }

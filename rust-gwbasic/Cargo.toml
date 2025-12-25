@@ -6,4 +6,13 @@ edition = "2021"
 description = "Reimplementation of GW-BASIC in safe, modern Rust."
 license = "MIT"
 
+[lib]
+name = "rust_gwbasic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-gwbasic"
+path = "src/main.rs"
+
 [dependencies]
+

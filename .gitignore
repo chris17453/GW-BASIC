@@ -3,6 +3,10 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Rust build artifacts
+rust-gwbasic/target/
+rust-gwbasic/Cargo.lock
+
 # User-specific files
 *.rsuser
 *.suo

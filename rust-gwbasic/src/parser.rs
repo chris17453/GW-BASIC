@@ -1,18 +1,681 @@
+//! Parser for GW-BASIC
+
+use crate::error::{Error, Result};
+use crate::lexer::{Token, TokenType};
+use crate::value::Value;
+
+/// AST node types
+#[derive(Debug, Clone, PartialEq)]
+pub enum AstNode {
+    // Statements
+    Print(Vec<AstNode>),
+    Let(String, Box<AstNode>),
+    If(Box<AstNode>, Vec<AstNode>, Option<Vec<AstNode>>),
+    For(String, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
+    Next(String),
+    While(Box<AstNode>, Vec<AstNode>),
+    Goto(u32),
+    Gosub(u32),
+    Return,
+    End,
+    Input(Vec<String>),
+    Dim(String, Vec<AstNode>),
+    Rem(String),
+    
+    // Expressions
+    Literal(Value),
+    Variable(String),
+    BinaryOp(BinaryOperator, Box<AstNode>, Box<AstNode>),
+    UnaryOp(UnaryOperator, Box<AstNode>),
+    FunctionCall(String, Vec<AstNode>),
+    
+    // Program structure
+    Line(u32, Vec<AstNode>),
+    Program(Vec<AstNode>),
+}
+
+/// Binary operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessEqual,
+    GreaterEqual,
+    And,
+    Or,
+}
+
+/// Unary operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOperator {
+    Negate,
+    Not,
+}
+
+/// Parser that converts tokens into an AST
 pub struct Parser {
-    // Future fields go here
+    tokens: Vec<Token>,
+    position: usize,
+}
+
+impl Parser {
+    /// Create a new parser from a vector of tokens
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Parser { tokens, position: 0 }
+    }
+
+    /// Parse the entire program
+    pub fn parse(&mut self) -> Result<AstNode> {
+        let mut lines = Vec::new();
+
+        while !self.is_at_end() {
+            if let TokenType::Eof = self.current_token().token_type {
+                break;
+            }
+            lines.push(self.parse_line()?);
+        }
+
+        Ok(AstNode::Program(lines))
+    }
+
+    fn parse_line(&mut self) -> Result<AstNode> {
+        let line_number = if let TokenType::LineNumber(num) = self.current_token().token_type {
+            self.advance();
+            Some(num)
+        } else {
+            None
+        };
+
+        let statements = self.parse_statements()?;
+
+        if let Some(num) = line_number {
+            Ok(AstNode::Line(num, statements))
+        } else {
+            // Direct mode - just return the statements
+            if statements.len() == 1 {
+                Ok(statements[0].clone())
+            } else {
+                Ok(AstNode::Program(statements))
+            }
+        }
+    }
+
+    fn parse_statements(&mut self) -> Result<Vec<AstNode>> {
+        let mut statements = Vec::new();
+
+        while !self.is_at_end() {
+            match &self.current_token().token_type {
+                TokenType::Eof | TokenType::Newline => break,
+                TokenType::Colon => {
+                    self.advance();
+                    continue;
+                }
+                _ => {
+                    statements.push(self.parse_statement()?);
+                }
+            }
+        }
+
+        Ok(statements)
+    }
+
+    fn parse_statement(&mut self) -> Result<AstNode> {
+        match &self.current_token().token_type {
+            TokenType::Print => self.parse_print(),
+            TokenType::Let => self.parse_let(),
+            TokenType::If => self.parse_if(),
+            TokenType::For => self.parse_for(),
+            TokenType::Next => self.parse_next(),
+            TokenType::While => self.parse_while(),
+            TokenType::Goto => self.parse_goto(),
+            TokenType::Gosub => self.parse_gosub(),
+            TokenType::Return => {
+                self.advance();
+                Ok(AstNode::Return)
+            }
+            TokenType::End => {
+                self.advance();
+                Ok(AstNode::End)
+            }
+            TokenType::Input => self.parse_input(),
+            TokenType::Dim => self.parse_dim(),
+            TokenType::Rem => self.parse_rem(),
+            TokenType::Identifier(_) => {
+                // Could be an assignment without LET
+                let name = if let TokenType::Identifier(n) = &self.current_token().token_type {
+                    n.clone()
+                } else {
+                    return Err(Error::SyntaxError("Expected identifier".to_string()));
+                };
+                self.advance();
+
+                if let TokenType::Equal = self.current_token().token_type {
+                    self.advance();
+                    let expr = self.parse_expression()?;
+                    Ok(AstNode::Let(name, Box::new(expr)))
+                } else {
+                    Err(Error::SyntaxError(format!("Unexpected token after identifier: {:?}", self.current_token().token_type)))
+                }
+            }
+            _ => Err(Error::SyntaxError(format!("Unexpected token: {:?}", self.current_token().token_type))),
+        }
+    }
+
+    fn parse_print(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip PRINT
+        let mut expressions = Vec::new();
+
+        while !self.is_at_end() {
+            match &self.current_token().token_type {
+                TokenType::Eof | TokenType::Newline | TokenType::Colon => break,
+                TokenType::Semicolon | TokenType::Comma => {
+                    self.advance();
+                }
+                _ => {
+                    expressions.push(self.parse_expression()?);
+                }
+            }
+        }
+
+        Ok(AstNode::Print(expressions))
+    }
+
+    fn parse_let(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip LET
+
+        let name = if let TokenType::Identifier(n) = &self.current_token().token_type {
+            n.clone()
+        } else {
+            return Err(Error::SyntaxError("Expected variable name".to_string()));
+        };
+        self.advance();
+
+        if let TokenType::Equal = self.current_token().token_type {
+            self.advance();
+        } else {
+            return Err(Error::SyntaxError("Expected '=' in LET statement".to_string()));
+        }
+
+        let expr = self.parse_expression()?;
+        Ok(AstNode::Let(name, Box::new(expr)))
+    }
+
+    fn parse_if(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip IF
+
+        let condition = self.parse_expression()?;
+
+        if let TokenType::Then = self.current_token().token_type {
+            self.advance();
+        } else {
+            return Err(Error::SyntaxError("Expected THEN after IF condition".to_string()));
+        }
+
+        let then_statements = self.parse_statements()?;
+
+        let else_statements = if let TokenType::Else = self.current_token().token_type {
+            self.advance();
+            Some(self.parse_statements()?)
+        } else {
+            None
+        };
+
+        Ok(AstNode::If(Box::new(condition), then_statements, else_statements))
+    }
+
+    fn parse_for(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip FOR
+
+        let var = if let TokenType::Identifier(n) = &self.current_token().token_type {
+            n.clone()
+        } else {
+            return Err(Error::SyntaxError("Expected variable after FOR".to_string()));
+        };
+        self.advance();
+
+        if let TokenType::Equal = self.current_token().token_type {
+            self.advance();
+        } else {
+            return Err(Error::SyntaxError("Expected '=' in FOR statement".to_string()));
+        }
+
+        let start = self.parse_expression()?;
+
+        if let TokenType::To = self.current_token().token_type {
+            self.advance();
+        } else {
+            return Err(Error::SyntaxError("Expected TO in FOR statement".to_string()));
+        }
+
+        let end = self.parse_expression()?;
+
+        let step = if let TokenType::Step = self.current_token().token_type {
+            self.advance();
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+
+        Ok(AstNode::For(var, Box::new(start), Box::new(end), step))
+    }
+
+    fn parse_next(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip NEXT
+
+        let var = if let TokenType::Identifier(n) = &self.current_token().token_type {
+            let v = n.clone();
+            self.advance();
+            v
+        } else {
+            String::new()
+        };
+
+        Ok(AstNode::Next(var))
+    }
+
+    fn parse_while(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip WHILE
+
+        let condition = self.parse_expression()?;
+        let statements = self.parse_statements()?;
+
+        Ok(AstNode::While(Box::new(condition), statements))
+    }
+
+    fn parse_goto(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip GOTO
+
+        if let TokenType::Integer(line) = self.current_token().token_type {
+            self.advance();
+            Ok(AstNode::Goto(line as u32))
+        } else {
+            Err(Error::SyntaxError("Expected line number after GOTO".to_string()))
+        }
+    }
+
+    fn parse_gosub(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip GOSUB
+
+        if let TokenType::Integer(line) = self.current_token().token_type {
+            self.advance();
+            Ok(AstNode::Gosub(line as u32))
+        } else {
+            Err(Error::SyntaxError("Expected line number after GOSUB".to_string()))
+        }
+    }
+
+    fn parse_input(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip INPUT
+
+        let mut vars = Vec::new();
+        while !self.is_at_end() {
+            match &self.current_token().token_type {
+                TokenType::Identifier(name) => {
+                    vars.push(name.clone());
+                    self.advance();
+
+                    if let TokenType::Comma = self.current_token().token_type {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        Ok(AstNode::Input(vars))
+    }
+
+    fn parse_dim(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip DIM
+
+        let name = if let TokenType::Identifier(n) = &self.current_token().token_type {
+            n.clone()
+        } else {
+            return Err(Error::SyntaxError("Expected array name".to_string()));
+        };
+        self.advance();
+
+        if let TokenType::LeftParen = self.current_token().token_type {
+            self.advance();
+        } else {
+            return Err(Error::SyntaxError("Expected '(' after array name".to_string()));
+        }
+
+        let mut dimensions = Vec::new();
+        loop {
+            dimensions.push(self.parse_expression()?);
+
+            match &self.current_token().token_type {
+                TokenType::Comma => self.advance(),
+                TokenType::RightParen => {
+                    self.advance();
+                    break;
+                }
+                _ => return Err(Error::SyntaxError("Expected ',' or ')' in DIM statement".to_string())),
+            }
+        }
+
+        Ok(AstNode::Dim(name, dimensions))
+    }
+
+    fn parse_rem(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip REM
+
+        let mut comment = String::new();
+        while !self.is_at_end() {
+            match &self.current_token().token_type {
+                TokenType::Eof | TokenType::Newline => break,
+                _ => {
+                    // Collect remaining tokens as comment text
+                    comment.push_str(&format!("{:?} ", self.current_token().token_type));
+                    self.advance();
+                }
+            }
+        }
+
+        Ok(AstNode::Rem(comment))
+    }
+
+    fn parse_expression(&mut self) -> Result<AstNode> {
+        self.parse_or()
+    }
+
+    fn parse_or(&mut self) -> Result<AstNode> {
+        let mut left = self.parse_and()?;
+
+        while let TokenType::Or = self.current_token().token_type {
+            self.advance();
+            let right = self.parse_and()?;
+            left = AstNode::BinaryOp(BinaryOperator::Or, Box::new(left), Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and(&mut self) -> Result<AstNode> {
+        let mut left = self.parse_comparison()?;
+
+        while let TokenType::And = self.current_token().token_type {
+            self.advance();
+            let right = self.parse_comparison()?;
+            left = AstNode::BinaryOp(BinaryOperator::And, Box::new(left), Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_comparison(&mut self) -> Result<AstNode> {
+        let mut left = self.parse_addition()?;
+
+        loop {
+            let op = match &self.current_token().token_type {
+                TokenType::Equal => BinaryOperator::Equal,
+                TokenType::NotEqual => BinaryOperator::NotEqual,
+                TokenType::LessThan => BinaryOperator::LessThan,
+                TokenType::GreaterThan => BinaryOperator::GreaterThan,
+                TokenType::LessEqual => BinaryOperator::LessEqual,
+                TokenType::GreaterEqual => BinaryOperator::GreaterEqual,
+                _ => break,
+            };
+
+            self.advance();
+            let right = self.parse_addition()?;
+            left = AstNode::BinaryOp(op, Box::new(left), Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_addition(&mut self) -> Result<AstNode> {
+        let mut left = self.parse_multiplication()?;
+
+        loop {
+            let op = match &self.current_token().token_type {
+                TokenType::Plus => BinaryOperator::Add,
+                TokenType::Minus => BinaryOperator::Subtract,
+                _ => break,
+            };
+
+            self.advance();
+            let right = self.parse_multiplication()?;
+            left = AstNode::BinaryOp(op, Box::new(left), Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_multiplication(&mut self) -> Result<AstNode> {
+        let mut left = self.parse_power()?;
+
+        loop {
+            let op = match &self.current_token().token_type {
+                TokenType::Multiply => BinaryOperator::Multiply,
+                TokenType::Divide => BinaryOperator::Divide,
+                _ => break,
+            };
+
+            self.advance();
+            let right = self.parse_power()?;
+            left = AstNode::BinaryOp(op, Box::new(left), Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_power(&mut self) -> Result<AstNode> {
+        let mut left = self.parse_unary()?;
+
+        while let TokenType::Power = self.current_token().token_type {
+            self.advance();
+            let right = self.parse_unary()?;
+            left = AstNode::BinaryOp(BinaryOperator::Power, Box::new(left), Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_unary(&mut self) -> Result<AstNode> {
+        match &self.current_token().token_type {
+            TokenType::Minus => {
+                self.advance();
+                let expr = self.parse_unary()?;
+                Ok(AstNode::UnaryOp(UnaryOperator::Negate, Box::new(expr)))
+            }
+            TokenType::Not => {
+                self.advance();
+                let expr = self.parse_unary()?;
+                Ok(AstNode::UnaryOp(UnaryOperator::Not, Box::new(expr)))
+            }
+            _ => self.parse_primary(),
+        }
+    }
+
+    fn parse_primary(&mut self) -> Result<AstNode> {
+        match &self.current_token().token_type.clone() {
+            TokenType::Integer(val) => {
+                let node = AstNode::Literal(Value::Integer(*val));
+                self.advance();
+                Ok(node)
+            }
+            TokenType::Float(val) => {
+                let node = AstNode::Literal(Value::Double(*val));
+                self.advance();
+                Ok(node)
+            }
+            TokenType::String(s) => {
+                let node = AstNode::Literal(Value::String(s.clone()));
+                self.advance();
+                Ok(node)
+            }
+            TokenType::Identifier(name) => {
+                let name = name.clone();
+                self.advance();
+
+                // Check for function call
+                if let TokenType::LeftParen = self.current_token().token_type {
+                    self.advance();
+                    let mut args = Vec::new();
+
+                    if let TokenType::RightParen = self.current_token().token_type {
+                        self.advance();
+                        return Ok(AstNode::FunctionCall(name, args));
+                    }
+
+                    loop {
+                        args.push(self.parse_expression()?);
+
+                        match &self.current_token().token_type {
+                            TokenType::Comma => self.advance(),
+                            TokenType::RightParen => {
+                                self.advance();
+                                break;
+                            }
+                            _ => return Err(Error::SyntaxError("Expected ',' or ')' in function call".to_string())),
+                        }
+                    }
+
+                    Ok(AstNode::FunctionCall(name, args))
+                } else {
+                    Ok(AstNode::Variable(name))
+                }
+            }
+            TokenType::LeftParen => {
+                self.advance();
+                let expr = self.parse_expression()?;
+
+                if let TokenType::RightParen = self.current_token().token_type {
+                    self.advance();
+                    Ok(expr)
+                } else {
+                    Err(Error::SyntaxError("Expected ')' after expression".to_string()))
+                }
+            }
+            _ => Err(Error::SyntaxError(format!("Unexpected token in expression: {:?}", self.current_token().token_type))),
+        }
+    }
+
+    fn current_token(&self) -> &Token {
+        &self.tokens[self.position]
+    }
+
+    fn advance(&mut self) {
+        if self.position < self.tokens.len() - 1 {
+            self.position += 1;
+        }
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.position >= self.tokens.len()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::Lexer;
 
     #[test]
     fn test_parser_initialization() {
-        // TDD: Start with simplest test
-        let _parser = Parser { };
-        // Assert basic state or use as basis for further TDD
+        let tokens = vec![Token::new(TokenType::Eof, 1, 1)];
+        let _parser = Parser::new(tokens);
         assert!(true);
     }
-    
-    // Add more TDD tests here as you build functionality
+
+    #[test]
+    fn test_parse_print_statement() {
+        let mut lexer = Lexer::new("PRINT 42");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Print(exprs) => {
+                        assert_eq!(exprs.len(), 1);
+                    }
+                    _ => panic!("Expected Print node"),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_let_statement() {
+        let mut lexer = Lexer::new("LET A = 10");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Let(name, _) => {
+                        assert_eq!(name, "A");
+                    }
+                    _ => panic!("Expected Let node"),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_expression() {
+        let mut lexer = Lexer::new("PRINT 1 + 2 * 3");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Print(exprs) => {
+                        assert_eq!(exprs.len(), 1);
+                        // Should be a binary operation
+                        match &exprs[0] {
+                            AstNode::BinaryOp(BinaryOperator::Add, _, _) => {},
+                            _ => panic!("Expected binary operation"),
+                        }
+                    }
+                    _ => panic!("Expected Print node"),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_line_with_number() {
+        let mut lexer = Lexer::new("10 PRINT 42");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Line(num, _) => {
+                        assert_eq!(*num, 10);
+                    }
+                    _ => panic!("Expected Line node"),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
 }

@@ -8,6 +8,7 @@ pub mod parser;
 pub mod interpreter;
 pub mod error;
 pub mod value;
+pub mod functions;
 
 pub use error::{Error, Result};
 pub use interpreter::Interpreter;

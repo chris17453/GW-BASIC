@@ -337,6 +337,22 @@ impl Interpreter {
                     Ok(Value::Double(left.as_double()? / right_val))
                 }
             }
+            BinaryOperator::IntDivide => {
+                let right_val = right.as_integer()?;
+                if right_val == 0 {
+                    Err(Error::DivisionByZero)
+                } else {
+                    Ok(Value::Integer(left.as_integer()? / right_val))
+                }
+            }
+            BinaryOperator::Mod => {
+                let right_val = right.as_integer()?;
+                if right_val == 0 {
+                    Err(Error::DivisionByZero)
+                } else {
+                    Ok(Value::Integer(left.as_integer()? % right_val))
+                }
+            }
             BinaryOperator::Power => {
                 Ok(Value::Double(left.as_double()?.powf(right.as_double()?)))
             }
@@ -368,6 +384,21 @@ impl Interpreter {
                 let r = right.as_integer()?;
                 Ok(Value::Integer(l | r))
             }
+            BinaryOperator::Xor => {
+                let l = left.as_integer()?;
+                let r = right.as_integer()?;
+                Ok(Value::Integer(l ^ r))
+            }
+            BinaryOperator::Eqv => {
+                let l = left.as_integer()?;
+                let r = right.as_integer()?;
+                Ok(Value::Integer(!(l ^ r)))
+            }
+            BinaryOperator::Imp => {
+                let l = left.as_integer()?;
+                let r = right.as_integer()?;
+                Ok(Value::Integer(!l | r))
+            }
         }
     }
 
@@ -383,29 +414,218 @@ impl Interpreter {
     }
 
     fn evaluate_function_call(&mut self, name: &str, args: &[AstNode]) -> Result<Value> {
-        // Implement built-in functions
+        use crate::functions::*;
+        
+        // Evaluate all arguments
+        let eval_args: Vec<Value> = args.iter()
+            .map(|arg| self.evaluate_expression(arg))
+            .collect::<Result<Vec<Value>>>()?;
+        
+        // Math functions (single argument)
         match name.to_uppercase().as_str() {
             "ABS" => {
-                if args.len() != 1 {
+                if eval_args.len() != 1 {
                     return Err(Error::RuntimeError("ABS requires 1 argument".to_string()));
                 }
-                let val = self.evaluate_expression(&args[0])?;
-                Ok(Value::Double(val.as_double()?.abs()))
+                abs_fn(eval_args[0].clone())
             }
             "INT" => {
-                if args.len() != 1 {
+                if eval_args.len() != 1 {
                     return Err(Error::RuntimeError("INT requires 1 argument".to_string()));
                 }
-                let val = self.evaluate_expression(&args[0])?;
-                Ok(Value::Integer(val.as_double()? as i32))
+                int_fn(eval_args[0].clone())
+            }
+            "FIX" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("FIX requires 1 argument".to_string()));
+                }
+                fix_fn(eval_args[0].clone())
+            }
+            "CINT" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CINT requires 1 argument".to_string()));
+                }
+                cint_fn(eval_args[0].clone())
+            }
+            "CSNG" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CSNG requires 1 argument".to_string()));
+                }
+                csng_fn(eval_args[0].clone())
+            }
+            "CDBL" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CDBL requires 1 argument".to_string()));
+                }
+                cdbl_fn(eval_args[0].clone())
             }
             "SQR" => {
-                if args.len() != 1 {
+                if eval_args.len() != 1 {
                     return Err(Error::RuntimeError("SQR requires 1 argument".to_string()));
                 }
-                let val = self.evaluate_expression(&args[0])?;
-                Ok(Value::Double(val.as_double()?.sqrt()))
+                sqr_fn(eval_args[0].clone())
             }
+            "SIN" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("SIN requires 1 argument".to_string()));
+                }
+                sin_fn(eval_args[0].clone())
+            }
+            "COS" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("COS requires 1 argument".to_string()));
+                }
+                cos_fn(eval_args[0].clone())
+            }
+            "TAN" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("TAN requires 1 argument".to_string()));
+                }
+                tan_fn(eval_args[0].clone())
+            }
+            "ATN" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("ATN requires 1 argument".to_string()));
+                }
+                atn_fn(eval_args[0].clone())
+            }
+            "EXP" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("EXP requires 1 argument".to_string()));
+                }
+                exp_fn(eval_args[0].clone())
+            }
+            "LOG" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("LOG requires 1 argument".to_string()));
+                }
+                log_fn(eval_args[0].clone())
+            }
+            "SGN" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("SGN requires 1 argument".to_string()));
+                }
+                sgn_fn(eval_args[0].clone())
+            }
+            
+            // String functions
+            "LEN" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("LEN requires 1 argument".to_string()));
+                }
+                len_fn(eval_args[0].clone())
+            }
+            "ASC" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("ASC requires 1 argument".to_string()));
+                }
+                asc_fn(eval_args[0].clone())
+            }
+            "CHR$" | "CHR" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CHR$ requires 1 argument".to_string()));
+                }
+                chr_fn(eval_args[0].clone())
+            }
+            "STR$" | "STR" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("STR$ requires 1 argument".to_string()));
+                }
+                str_fn(eval_args[0].clone())
+            }
+            "VAL" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("VAL requires 1 argument".to_string()));
+                }
+                val_fn(eval_args[0].clone())
+            }
+            "LEFT$" | "LEFT" => {
+                if eval_args.len() != 2 {
+                    return Err(Error::RuntimeError("LEFT$ requires 2 arguments".to_string()));
+                }
+                left_fn(eval_args[0].clone(), eval_args[1].clone())
+            }
+            "RIGHT$" | "RIGHT" => {
+                if eval_args.len() != 2 {
+                    return Err(Error::RuntimeError("RIGHT$ requires 2 arguments".to_string()));
+                }
+                right_fn(eval_args[0].clone(), eval_args[1].clone())
+            }
+            "MID$" | "MID" => {
+                if eval_args.len() < 2 || eval_args.len() > 3 {
+                    return Err(Error::RuntimeError("MID$ requires 2 or 3 arguments".to_string()));
+                }
+                let len = if eval_args.len() == 3 {
+                    Some(eval_args[2].clone())
+                } else {
+                    None
+                };
+                mid_fn(eval_args[0].clone(), eval_args[1].clone(), len)
+            }
+            "SPACE$" | "SPACE" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("SPACE$ requires 1 argument".to_string()));
+                }
+                space_fn(eval_args[0].clone())
+            }
+            "STRING$" | "STRING" => {
+                if eval_args.len() != 2 {
+                    return Err(Error::RuntimeError("STRING$ requires 2 arguments".to_string()));
+                }
+                string_fn(eval_args[0].clone(), eval_args[1].clone())
+            }
+            "INSTR" => {
+                if eval_args.len() < 2 || eval_args.len() > 3 {
+                    return Err(Error::RuntimeError("INSTR requires 2 or 3 arguments".to_string()));
+                }
+                if eval_args.len() == 3 {
+                    instr_fn(Some(eval_args[0].clone()), eval_args[1].clone(), eval_args[2].clone())
+                } else {
+                    instr_fn(None, eval_args[0].clone(), eval_args[1].clone())
+                }
+            }
+            "HEX$" | "HEX" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("HEX$ requires 1 argument".to_string()));
+                }
+                hex_fn(eval_args[0].clone())
+            }
+            "OCT$" | "OCT" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("OCT$ requires 1 argument".to_string()));
+                }
+                oct_fn(eval_args[0].clone())
+            }
+            
+            // System functions
+            "RND" => {
+                if eval_args.is_empty() {
+                    rnd_fn(None)
+                } else if eval_args.len() == 1 {
+                    rnd_fn(Some(eval_args[0].clone()))
+                } else {
+                    Err(Error::RuntimeError("RND requires 0 or 1 arguments".to_string()))
+                }
+            }
+            "TIMER" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("TIMER requires 0 arguments".to_string()));
+                }
+                timer_fn()
+            }
+            "PEEK" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("PEEK requires 1 argument".to_string()));
+                }
+                peek_fn(eval_args[0].clone())
+            }
+            "INP" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("INP requires 1 argument".to_string()));
+                }
+                inp_fn(eval_args[0].clone())
+            }
+            
             _ => Err(Error::UndefinedError(format!("Function {} not defined", name))),
         }
     }

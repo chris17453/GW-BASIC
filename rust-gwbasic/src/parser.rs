@@ -41,6 +41,8 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    IntDivide,
+    Mod,
     Power,
     Equal,
     NotEqual,
@@ -50,6 +52,9 @@ pub enum BinaryOperator {
     GreaterEqual,
     And,
     Or,
+    Xor,
+    Eqv,
+    Imp,
 }
 
 /// Unary operators
@@ -468,6 +473,8 @@ impl Parser {
             let op = match &self.current_token().token_type {
                 TokenType::Multiply => BinaryOperator::Multiply,
                 TokenType::Divide => BinaryOperator::Divide,
+                TokenType::IntDivide => BinaryOperator::IntDivide,
+                TokenType::Mod => BinaryOperator::Mod,
                 _ => break,
             };
 

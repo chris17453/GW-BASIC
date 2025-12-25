@@ -10,7 +10,7 @@ pub enum TokenType {
     Float(f64),
     String(String),
     
-    // Keywords
+    // Keywords - Control Flow
     Print,
     Let,
     If,
@@ -26,18 +26,101 @@ pub enum TokenType {
     Gosub,
     Return,
     End,
+    Stop,
+    Cont,
+    
+    // Keywords - I/O
     Input,
+    LineInput,
+    Open,
+    Close,
+    Load,
+    Save,
+    Run,
+    List,
+    New,
+    
+    // Keywords - Data
     Dim,
     Rem,
     Data,
     Read,
     Restore,
+    Defstr,
+    Defint,
+    Defsng,
+    Defdbl,
+    
+    // Keywords - Array/Memory
+    Erase,
+    Clear,
+    Swap,
+    
+    // Keywords - Screen/Graphics
+    Cls,
+    Locate,
+    Color,
+    Screen,
+    Width,
+    View,
+    Window,
+    Pset,
+    Preset,
+    Line,
+    Circle,
+    Paint,
+    Draw,
+    Get,
+    Put,
+    
+    // Keywords - Sound
+    Beep,
+    Sound,
+    Play,
+    
+    // Keywords - System
+    Key,
+    On,
+    Off,
+    Wait,
+    Randomize,
+    Timer,
+    Date,
+    Time,
+    
+    // Keywords - File Operations
+    Files,
+    Kill,
+    Name,
+    Merge,
+    Chain,
+    Field,
+    Lset,
+    Rset,
+    
+    // Keywords - Error Handling
+    Error,
+    Resume,
+    
+    // Keywords - Functions (can also be identifiers)
+    Def,
+    Fn,
+    
+    // Keywords - Program Control
+    Auto,
+    Delete,
+    Renum,
+    Edit,
+    Tron,
+    Troff,
     
     // Operators
     Plus,
     Minus,
     Multiply,
     Divide,
+    IntDivide,     // Backslash
+    Mod,
     Power,
     Equal,
     NotEqual,
@@ -48,6 +131,9 @@ pub enum TokenType {
     And,
     Or,
     Not,
+    Xor,
+    Eqv,
+    Imp,
     
     // Delimiters
     LeftParen,
@@ -55,6 +141,10 @@ pub enum TokenType {
     Comma,
     Colon,
     Semicolon,
+    Dollar,        // For string variables
+    Percent,       // For integer variables
+    Exclamation,   // For single precision
+    Hash,          // For double precision or file numbers
     
     // Other
     Identifier(String),
@@ -134,12 +224,17 @@ impl Lexer {
             '-' => { self.advance(); TokenType::Minus }
             '*' => { self.advance(); TokenType::Multiply }
             '/' => { self.advance(); TokenType::Divide }
+            '\\' => { self.advance(); TokenType::IntDivide }
             '^' => { self.advance(); TokenType::Power }
             '(' => { self.advance(); TokenType::LeftParen }
             ')' => { self.advance(); TokenType::RightParen }
             ',' => { self.advance(); TokenType::Comma }
             ':' => { self.advance(); TokenType::Colon }
             ';' => { self.advance(); TokenType::Semicolon }
+            '$' => { self.advance(); TokenType::Dollar }
+            '%' => { self.advance(); TokenType::Percent }
+            '!' => { self.advance(); TokenType::Exclamation }
+            '#' => { self.advance(); TokenType::Hash }
             '=' => { self.advance(); TokenType::Equal }
             '<' => {
                 self.advance();
@@ -286,6 +381,7 @@ impl Lexer {
         }
 
         let token_type = match ident.to_uppercase().as_str() {
+            // Control Flow
             "PRINT" => TokenType::Print,
             "LET" => TokenType::Let,
             "IF" => TokenType::If,
@@ -301,15 +397,104 @@ impl Lexer {
             "GOSUB" => TokenType::Gosub,
             "RETURN" => TokenType::Return,
             "END" => TokenType::End,
+            "STOP" => TokenType::Stop,
+            "CONT" => TokenType::Cont,
+            
+            // I/O
             "INPUT" => TokenType::Input,
+            "LINE" => {
+                // Check if followed by INPUT
+                TokenType::Identifier(ident.clone())
+            },
+            "OPEN" => TokenType::Open,
+            "CLOSE" => TokenType::Close,
+            "LOAD" => TokenType::Load,
+            "SAVE" => TokenType::Save,
+            "RUN" => TokenType::Run,
+            "LIST" => TokenType::List,
+            "NEW" => TokenType::New,
+            
+            // Data
             "DIM" => TokenType::Dim,
             "REM" => TokenType::Rem,
             "DATA" => TokenType::Data,
             "READ" => TokenType::Read,
             "RESTORE" => TokenType::Restore,
+            "DEFSTR" => TokenType::Defstr,
+            "DEFINT" => TokenType::Defint,
+            "DEFSNG" => TokenType::Defsng,
+            "DEFDBL" => TokenType::Defdbl,
+            
+            // Array/Memory
+            "ERASE" => TokenType::Erase,
+            "CLEAR" => TokenType::Clear,
+            "SWAP" => TokenType::Swap,
+            
+            // Screen/Graphics
+            "CLS" => TokenType::Cls,
+            "LOCATE" => TokenType::Locate,
+            "COLOR" => TokenType::Color,
+            "SCREEN" => TokenType::Screen,
+            "WIDTH" => TokenType::Width,
+            "VIEW" => TokenType::View,
+            "WINDOW" => TokenType::Window,
+            "PSET" => TokenType::Pset,
+            "PRESET" => TokenType::Preset,
+            "CIRCLE" => TokenType::Circle,
+            "PAINT" => TokenType::Paint,
+            "DRAW" => TokenType::Draw,
+            "GET" => TokenType::Get,
+            "PUT" => TokenType::Put,
+            
+            // Sound
+            "BEEP" => TokenType::Beep,
+            "SOUND" => TokenType::Sound,
+            "PLAY" => TokenType::Play,
+            
+            // System
+            "KEY" => TokenType::Key,
+            "ON" => TokenType::On,
+            "OFF" => TokenType::Off,
+            "WAIT" => TokenType::Wait,
+            "RANDOMIZE" => TokenType::Randomize,
+            "TIMER" => TokenType::Timer,
+            "DATE" => TokenType::Date,
+            "TIME" => TokenType::Time,
+            
+            // File Operations
+            "FILES" => TokenType::Files,
+            "NAME" => TokenType::Name,
+            "MERGE" => TokenType::Merge,
+            "CHAIN" => TokenType::Chain,
+            "FIELD" => TokenType::Field,
+            "LSET" => TokenType::Lset,
+            "RSET" => TokenType::Rset,
+            
+            // Error Handling
+            "ERROR" => TokenType::Error,
+            "RESUME" => TokenType::Resume,
+            
+            // Functions
+            "DEF" => TokenType::Def,
+            "FN" => TokenType::Fn,
+            
+            // Program Control
+            "AUTO" => TokenType::Auto,
+            "DELETE" => TokenType::Delete,
+            "RENUM" => TokenType::Renum,
+            "EDIT" => TokenType::Edit,
+            "TRON" => TokenType::Tron,
+            "TROFF" => TokenType::Troff,
+            
+            // Logical Operators
             "AND" => TokenType::And,
             "OR" => TokenType::Or,
             "NOT" => TokenType::Not,
+            "XOR" => TokenType::Xor,
+            "EQV" => TokenType::Eqv,
+            "IMP" => TokenType::Imp,
+            "MOD" => TokenType::Mod,
+            
             _ => TokenType::Identifier(ident),
         };
 

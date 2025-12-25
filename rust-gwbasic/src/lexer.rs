@@ -163,10 +163,11 @@ impl Lexer {
                 }
             }
             '\n' => {
+                let token = Token::new(TokenType::Newline, self.line, self.column);
                 self.advance();
                 self.line += 1;
                 self.column = 1;
-                return self.next_token(); // Skip newlines for now
+                return Ok(token);
             }
             _ => {
                 return Err(Error::SyntaxError(format!("Unexpected character: '{}'", ch)));

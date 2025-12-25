@@ -112,7 +112,16 @@ impl Parser {
 
         while !self.is_at_end() {
             match &self.current_token().token_type {
-                TokenType::Eof | TokenType::Newline => break,
+                TokenType::Eof => break,
+                TokenType::Newline => {
+                    self.advance();
+                    // If we have statements, return them (end of line)
+                    if !statements.is_empty() {
+                        break;
+                    }
+                    // Otherwise, skip empty lines
+                    continue;
+                }
                 TokenType::Colon => {
                     self.advance();
                     continue;

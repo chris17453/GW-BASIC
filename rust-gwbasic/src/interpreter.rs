@@ -764,6 +764,67 @@ impl Interpreter {
                 }
                 oct_fn(eval_args[0].clone())
             }
+            "LCASE$" | "LCASE" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("LCASE$ requires 1 argument".to_string()));
+                }
+                lcase_fn(eval_args[0].clone())
+            }
+            "UCASE$" | "UCASE" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("UCASE$ requires 1 argument".to_string()));
+                }
+                ucase_fn(eval_args[0].clone())
+            }
+            "INPUT$" | "INPUT" => {
+                if eval_args.len() < 1 || eval_args.len() > 2 {
+                    return Err(Error::RuntimeError("INPUT$ requires 1 or 2 arguments".to_string()));
+                }
+                let file_num = if eval_args.len() == 2 {
+                    Some(eval_args[1].clone())
+                } else {
+                    None
+                };
+                input_fn(eval_args[0].clone(), file_num)
+            }
+            
+            // Conversion functions
+            "CVI" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CVI requires 1 argument".to_string()));
+                }
+                cvi_fn(eval_args[0].clone())
+            }
+            "CVS" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CVS requires 1 argument".to_string()));
+                }
+                cvs_fn(eval_args[0].clone())
+            }
+            "CVD" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("CVD requires 1 argument".to_string()));
+                }
+                cvd_fn(eval_args[0].clone())
+            }
+            "MKI$" | "MKI" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("MKI$ requires 1 argument".to_string()));
+                }
+                mki_fn(eval_args[0].clone())
+            }
+            "MKS$" | "MKS" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("MKS$ requires 1 argument".to_string()));
+                }
+                mks_fn(eval_args[0].clone())
+            }
+            "MKD$" | "MKD" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("MKD$ requires 1 argument".to_string()));
+                }
+                mkd_fn(eval_args[0].clone())
+            }
             
             // System functions
             "RND" => {
@@ -792,6 +853,48 @@ impl Interpreter {
                     return Err(Error::RuntimeError("INP requires 1 argument".to_string()));
                 }
                 inp_fn(eval_args[0].clone())
+            }
+            "FRE" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("FRE requires 1 argument".to_string()));
+                }
+                fre_fn(eval_args[0].clone())
+            }
+            "VARPTR" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("VARPTR requires 1 argument".to_string()));
+                }
+                varptr_fn(eval_args[0].clone())
+            }
+            "INKEY$" | "INKEY" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("INKEY$ requires 0 arguments".to_string()));
+                }
+                inkey_fn()
+            }
+            "DATE$" | "DATE" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("DATE$ requires 0 arguments".to_string()));
+                }
+                date_fn()
+            }
+            "TIME$" | "TIME" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("TIME$ requires 0 arguments".to_string()));
+                }
+                time_fn()
+            }
+            "POS" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("POS requires 1 argument".to_string()));
+                }
+                pos_fn(eval_args[0].clone())
+            }
+            "CSRLIN" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("CSRLIN requires 0 arguments".to_string()));
+                }
+                csrlin_fn()
             }
             
             _ => Err(Error::UndefinedError(format!("Function {} not defined", name))),

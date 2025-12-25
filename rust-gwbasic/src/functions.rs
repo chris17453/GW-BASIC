@@ -246,6 +246,133 @@ pub fn timer_fn() -> Result<Value> {
     Ok(Value::Single(seconds_since_midnight))
 }
 
+/// Additional string functions
+pub fn lcase_fn(val: Value) -> Result<Value> {
+    Ok(Value::String(val.as_string().to_lowercase()))
+}
+
+pub fn ucase_fn(val: Value) -> Result<Value> {
+    Ok(Value::String(val.as_string().to_uppercase()))
+}
+
+pub fn input_fn(n: Value, file_num: Option<Value>) -> Result<Value> {
+    let count = n.as_integer()? as usize;
+    if file_num.is_some() {
+        // File input - simulated
+        Ok(Value::String(" ".repeat(count)))
+    } else {
+        // Console input
+        use std::io::{self, Read};
+        let mut buffer = vec![0u8; count];
+        io::stdin().read_exact(&mut buffer)
+            .map_err(|e| Error::IoError(e.to_string()))?;
+        Ok(Value::String(String::from_utf8_lossy(&buffer).to_string()))
+    }
+}
+
+/// Conversion functions
+pub fn cvi_fn(val: Value) -> Result<Value> {
+    let s = val.as_string();
+    if s.len() < 2 {
+        return Err(Error::RuntimeError("CVI requires 2-byte string".to_string()));
+    }
+    let bytes = s.as_bytes();
+    let n = i16::from_le_bytes([bytes[0], bytes[1]]) as i32;
+    Ok(Value::Integer(n))
+}
+
+pub fn cvs_fn(val: Value) -> Result<Value> {
+    let s = val.as_string();
+    if s.len() < 4 {
+        return Err(Error::RuntimeError("CVS requires 4-byte string".to_string()));
+    }
+    let bytes = s.as_bytes();
+    let n = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    Ok(Value::Single(n))
+}
+
+pub fn cvd_fn(val: Value) -> Result<Value> {
+    let s = val.as_string();
+    if s.len() < 8 {
+        return Err(Error::RuntimeError("CVD requires 8-byte string".to_string()));
+    }
+    let bytes = s.as_bytes();
+    let n = f64::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3],
+        bytes[4], bytes[5], bytes[6], bytes[7],
+    ]);
+    Ok(Value::Double(n))
+}
+
+pub fn mki_fn(val: Value) -> Result<Value> {
+    let n = val.as_integer()? as i16;
+    let bytes = n.to_le_bytes();
+    Ok(Value::String(String::from_utf8_lossy(&bytes).to_string()))
+}
+
+pub fn mks_fn(val: Value) -> Result<Value> {
+    let n = val.as_double()? as f32;
+    let bytes = n.to_le_bytes();
+    Ok(Value::String(String::from_utf8_lossy(&bytes).to_string()))
+}
+
+pub fn mkd_fn(val: Value) -> Result<Value> {
+    let n = val.as_double()?;
+    let bytes = n.to_le_bytes();
+    Ok(Value::String(String::from_utf8_lossy(&bytes).to_string()))
+}
+
+/// System functions
+pub fn fre_fn(_val: Value) -> Result<Value> {
+    // Simulated - return large number for free memory
+    Ok(Value::Integer(65000))
+}
+
+pub fn varptr_fn(_var_name: Value) -> Result<Value> {
+    // Simulated - return dummy pointer
+    Ok(Value::Integer(0))
+}
+
+pub fn inkey_fn() -> Result<Value> {
+    // Simulated - would check keyboard without waiting
+    Ok(Value::String(String::new()))
+}
+
+pub fn date_fn() -> Result<Value> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap();
+    let days_since_epoch = now.as_secs() / 86400;
+    // Simple date format MM-DD-YYYY (simplified)
+    Ok(Value::String(format!("{:02}-{:02}-{:04}", 
+        (days_since_epoch % 365) / 30 + 1,
+        (days_since_epoch % 365) % 30 + 1,
+        1970 + days_since_epoch / 365)))
+}
+
+pub fn time_fn() -> Result<Value> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap();
+    let seconds = now.as_secs() % 86400;
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    Ok(Value::String(format!("{:02}:{:02}:{:02}", hours, minutes, secs)))
+}
+
+pub fn pos_fn(_dummy: Value) -> Result<Value> {
+    // Return current cursor column (simulated)
+    Ok(Value::Integer(1))
+}
+
+pub fn csrlin_fn() -> Result<Value> {
+    // Return current cursor row (simulated)
+    Ok(Value::Integer(1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,5 +397,11 @@ mod tests {
         assert_eq!(left_fn(s.clone(), Value::Integer(2)).unwrap().as_string(), "HE");
         assert_eq!(right_fn(s.clone(), Value::Integer(2)).unwrap().as_string(), "LO");
         assert_eq!(mid_fn(s, Value::Integer(2), Some(Value::Integer(3))).unwrap().as_string(), "ELL");
+    }
+    
+    #[test]
+    fn test_case_functions() {
+        assert_eq!(lcase_fn(Value::String("HELLO".to_string())).unwrap().as_string(), "hello");
+        assert_eq!(ucase_fn(Value::String("hello".to_string())).unwrap().as_string(), "HELLO");
     }
 }

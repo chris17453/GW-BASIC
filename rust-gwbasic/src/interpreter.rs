@@ -63,6 +63,13 @@ impl Interpreter {
     /// Execute a single AST node
     fn execute_node(&mut self, node: AstNode) -> Result<()> {
         match node {
+            AstNode::Program(nodes) => {
+                // Execute all nodes in sequence
+                for n in nodes {
+                    self.execute_node(n)?;
+                }
+                Ok(())
+            }
             AstNode::Line(num, statements) => {
                 self.lines.insert(num, statements);
                 Ok(())
@@ -86,6 +93,10 @@ impl Interpreter {
             AstNode::Input(vars) => self.execute_input(vars),
             AstNode::Dim(name, dimensions) => self.execute_dim(name, dimensions),
             AstNode::Rem(_) => Ok(()), // Comments are no-ops
+            AstNode::Program(_) => {
+                // This shouldn't happen - Programs should be handled at the top level
+                Err(Error::RuntimeError("Unexpected nested Program node".to_string()))
+            }
             _ => Err(Error::RuntimeError(format!("Cannot execute node: {:?}", node))),
         }
     }

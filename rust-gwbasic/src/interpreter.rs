@@ -3,6 +3,8 @@
 use crate::error::{Error, Result};
 use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
 use crate::value::Value;
+use crate::graphics::Screen;
+use crate::fileio::{FileManager, FileMode};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -22,6 +24,16 @@ pub struct Interpreter {
     
     /// FOR loop stack
     for_stack: Vec<ForLoopState>,
+    
+    /// Screen/Graphics manager
+    screen: Screen,
+    
+    /// File I/O manager
+    file_manager: FileManager,
+    
+    /// DATA storage
+    data_items: Vec<Value>,
+    data_pointer: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +54,10 @@ impl Interpreter {
             current_line: None,
             call_stack: Vec::new(),
             for_stack: Vec::new(),
+            screen: Screen::default(),
+            file_manager: FileManager::new(),
+            data_items: Vec::new(),
+            data_pointer: 0,
         }
     }
 
@@ -74,8 +90,13 @@ impl Interpreter {
                 self.lines.insert(num, statements);
                 Ok(())
             }
+            
+            // Basic I/O
             AstNode::Print(exprs) => self.execute_print(exprs),
+            AstNode::Input(vars) => self.execute_input(vars),
             AstNode::Let(name, expr) => self.execute_let(name, *expr),
+            
+            // Control Flow
             AstNode::If(condition, then_stmts, else_stmts) => {
                 self.execute_if(*condition, then_stmts, else_stmts)
             }
@@ -90,9 +111,156 @@ impl Interpreter {
             AstNode::Gosub(line) => self.execute_gosub(line),
             AstNode::Return => self.execute_return(),
             AstNode::End => Err(Error::ProgramEnd),
-            AstNode::Input(vars) => self.execute_input(vars),
+            AstNode::Stop => Err(Error::ProgramEnd),
+            
+            // Data
             AstNode::Dim(name, dimensions) => self.execute_dim(name, dimensions),
             AstNode::Rem(_) => Ok(()), // Comments are no-ops
+            AstNode::Read(vars) => {
+                for var in vars {
+                    if self.data_pointer >= self.data_items.len() {
+                        return Err(Error::RuntimeError("Out of DATA".to_string()));
+                    }
+                    self.variables.insert(var, self.data_items[self.data_pointer].clone());
+                    self.data_pointer += 1;
+                }
+                Ok(())
+            }
+            AstNode::Data(values) => {
+                for val_node in values {
+                    let val = self.evaluate_expression(&val_node)?;
+                    self.data_items.push(val);
+                }
+                Ok(())
+            }
+            AstNode::Restore(line) => {
+                self.data_pointer = 0;
+                // In full implementation, would restore to specific line
+                Ok(())
+            }
+            
+            // Screen/Graphics
+            AstNode::Cls => {
+                self.screen.cls();
+                println!("\x1B[2J\x1B[1;1H"); // ANSI clear screen
+                Ok(())
+            }
+            AstNode::Locate(row, col) => {
+                let r = self.evaluate_expression(&row)?.as_integer()? as usize;
+                let c = self.evaluate_expression(&col)?.as_integer()? as usize;
+                self.screen.locate(r.saturating_sub(1), c.saturating_sub(1))?;
+                Ok(())
+            }
+            AstNode::Color(fg, bg) => {
+                let fg_val = if let Some(f) = fg {
+                    Some(self.evaluate_expression(&f)?.as_integer()? as u8)
+                } else {
+                    None
+                };
+                let bg_val = if let Some(b) = bg {
+                    Some(self.evaluate_expression(&b)?.as_integer()? as u8)
+                } else {
+                    None
+                };
+                self.screen.color(fg_val, bg_val);
+                Ok(())
+            }
+            AstNode::Screen(mode) => {
+                // Screen mode change - simplified
+                let _m = self.evaluate_expression(&mode)?;
+                Ok(())
+            }
+            AstNode::Pset(x, y, color) => {
+                let x_val = self.evaluate_expression(&x)?.as_integer()?;
+                let y_val = self.evaluate_expression(&y)?.as_integer()?;
+                let c_val = if let Some(c) = color {
+                    Some(self.evaluate_expression(&c)?.as_integer()? as u8)
+                } else {
+                    None
+                };
+                self.screen.pset(x_val, y_val, c_val)?;
+                Ok(())
+            }
+            AstNode::DrawLine(x1, y1, x2, y2, color) => {
+                let x1_val = self.evaluate_expression(&x1)?.as_integer()?;
+                let y1_val = self.evaluate_expression(&y1)?.as_integer()?;
+                let x2_val = self.evaluate_expression(&x2)?.as_integer()?;
+                let y2_val = self.evaluate_expression(&y2)?.as_integer()?;
+                let c_val = if let Some(c) = color {
+                    Some(self.evaluate_expression(&c)?.as_integer()? as u8)
+                } else {
+                    None
+                };
+                self.screen.line(x1_val, y1_val, x2_val, y2_val, c_val)?;
+                Ok(())
+            }
+            AstNode::Circle(x, y, radius, color) => {
+                let x_val = self.evaluate_expression(&x)?.as_integer()?;
+                let y_val = self.evaluate_expression(&y)?.as_integer()?;
+                let r_val = self.evaluate_expression(&radius)?.as_integer()?;
+                let c_val = if let Some(c) = color {
+                    Some(self.evaluate_expression(&c)?.as_integer()? as u8)
+                } else {
+                    None
+                };
+                self.screen.circle(x_val, y_val, r_val, c_val)?;
+                Ok(())
+            }
+            
+            // Sound
+            AstNode::Beep => {
+                println!("\x07"); // ASCII bell character
+                Ok(())
+            }
+            AstNode::Sound(freq, duration) => {
+                let _f = self.evaluate_expression(&freq)?;
+                let _d = self.evaluate_expression(&duration)?;
+                // Simulated - would play sound
+                println!("\x07");
+                Ok(())
+            }
+            
+            // File I/O
+            AstNode::Open(filename, filenum, mode) => {
+                let num = self.evaluate_expression(&filenum)?.as_integer()?;
+                let file_mode = match mode.to_uppercase().as_str() {
+                    "INPUT" | "I" => FileMode::Input,
+                    "OUTPUT" | "O" => FileMode::Output,
+                    "APPEND" | "A" => FileMode::Append,
+                    _ => FileMode::Output,
+                };
+                self.file_manager.open(num, &filename, file_mode)?;
+                Ok(())
+            }
+            AstNode::Close(nums) => {
+                if nums.is_empty() {
+                    self.file_manager.close_all()?;
+                } else {
+                    for num in nums {
+                        self.file_manager.close(num)?;
+                    }
+                }
+                Ok(())
+            }
+            
+            // System
+            AstNode::Randomize(seed) => {
+                // Set RNG seed - handled by RND function
+                if let Some(s) = seed {
+                    let _seed_val = self.evaluate_expression(&s)?;
+                }
+                Ok(())
+            }
+            AstNode::Swap(var1, var2) => {
+                let val1 = self.variables.get(&var1).cloned()
+                    .ok_or_else(|| Error::UndefinedError(format!("Variable {} not defined", var1)))?;
+                let val2 = self.variables.get(&var2).cloned()
+                    .ok_or_else(|| Error::UndefinedError(format!("Variable {} not defined", var2)))?;
+                self.variables.insert(var1, val2);
+                self.variables.insert(var2, val1);
+                Ok(())
+            }
+            
             _ => Err(Error::RuntimeError(format!("Cannot execute node: {:?}", node))),
         }
     }

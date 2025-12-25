@@ -9,12 +9,16 @@ pub mod interpreter;
 pub mod error;
 pub mod value;
 pub mod functions;
+pub mod graphics;
+pub mod fileio;
 
 pub use error::{Error, Result};
 pub use interpreter::Interpreter;
 pub use lexer::{Lexer, Token, TokenType};
 pub use parser::{Parser, AstNode};
 pub use value::Value;
+pub use graphics::Screen;
+pub use fileio::{FileManager, FileMode};
 
 /// Version information for the GW-BASIC interpreter
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

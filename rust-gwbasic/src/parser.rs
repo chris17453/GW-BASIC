@@ -7,9 +7,12 @@ use crate::value::Value;
 /// AST node types
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
-    // Statements
+    // Statements - Basic I/O
     Print(Vec<AstNode>),
+    Input(Vec<String>),
     Let(String, Box<AstNode>),
+    
+    // Statements - Control Flow
     If(Box<AstNode>, Vec<AstNode>, Option<Vec<AstNode>>),
     For(String, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
     Next(String),
@@ -18,9 +21,35 @@ pub enum AstNode {
     Gosub(u32),
     Return,
     End,
-    Input(Vec<String>),
+    Stop,
+    
+    // Statements - Data
     Dim(String, Vec<AstNode>),
+    Read(Vec<String>),
+    Data(Vec<AstNode>),
+    Restore(Option<u32>),
     Rem(String),
+    
+    // Statements - Screen/Graphics
+    Cls,
+    Locate(Box<AstNode>, Box<AstNode>),
+    Color(Option<Box<AstNode>>, Option<Box<AstNode>>),
+    Screen(Box<AstNode>),
+    Pset(Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
+    DrawLine(Box<AstNode>, Box<AstNode>, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
+    Circle(Box<AstNode>, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
+    
+    // Statements - Sound
+    Beep,
+    Sound(Box<AstNode>, Box<AstNode>),
+    
+    // Statements - File I/O
+    Open(String, Box<AstNode>, String),  // filename, file_number, mode
+    Close(Vec<i32>),
+    
+    // Statements - System
+    Randomize(Option<Box<AstNode>>),
+    Swap(String, String),
     
     // Expressions
     Literal(Value),
@@ -142,8 +171,12 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Result<AstNode> {
         match &self.current_token().token_type {
+            // Basic I/O
             TokenType::Print => self.parse_print(),
+            TokenType::Input => self.parse_input(),
             TokenType::Let => self.parse_let(),
+            
+            // Control Flow
             TokenType::If => self.parse_if(),
             TokenType::For => self.parse_for(),
             TokenType::Next => self.parse_next(),
@@ -158,9 +191,190 @@ impl Parser {
                 self.advance();
                 Ok(AstNode::End)
             }
-            TokenType::Input => self.parse_input(),
+            TokenType::Stop => {
+                self.advance();
+                Ok(AstNode::Stop)
+            }
+            
+            // Data
             TokenType::Dim => self.parse_dim(),
             TokenType::Rem => self.parse_rem(),
+            TokenType::Read => {
+                self.advance();
+                // Simplified READ - just parse variable names
+                let mut vars = vec![];
+                while !self.is_at_end() {
+                    if let TokenType::Identifier(name) = &self.current_token().token_type {
+                        vars.push(name.clone());
+                        self.advance();
+                        if let TokenType::Comma = self.current_token().token_type {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                Ok(AstNode::Read(vars))
+            }
+            TokenType::Data => {
+                self.advance();
+                // DATA statement - store literals
+                let mut values = vec![];
+                while !self.is_at_end() {
+                    match &self.current_token().token_type {
+                        TokenType::Newline | TokenType::Colon | TokenType::Eof => break,
+                        _ => {
+                            values.push(self.parse_expression()?);
+                            if let TokenType::Comma = self.current_token().token_type {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Ok(AstNode::Data(values))
+            }
+            TokenType::Restore => {
+                self.advance();
+                let line = if let TokenType::Integer(n) = self.current_token().token_type {
+                    self.advance();
+                    Some(n as u32)
+                } else {
+                    None
+                };
+                Ok(AstNode::Restore(line))
+            }
+            
+            // Screen/Graphics
+            TokenType::Cls => {
+                self.advance();
+                Ok(AstNode::Cls)
+            }
+            TokenType::Locate => {
+                self.advance();
+                let row = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let col = self.parse_expression()?;
+                Ok(AstNode::Locate(Box::new(row), Box::new(col)))
+            }
+            TokenType::Color => {
+                self.advance();
+                let fg = if matches!(self.current_token().token_type, TokenType::Comma | TokenType::Newline | TokenType::Eof) {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expression()?))
+                };
+                let bg = if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    if !matches!(self.current_token().token_type, TokenType::Newline | TokenType::Eof) {
+                        Some(Box::new(self.parse_expression()?))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                Ok(AstNode::Color(fg, bg))
+            }
+            TokenType::Pset => {
+                self.advance();
+                if let TokenType::LeftParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let x = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let y = self.parse_expression()?;
+                if let TokenType::RightParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let color = if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    Some(Box::new(self.parse_expression()?))
+                } else {
+                    None
+                };
+                Ok(AstNode::Pset(Box::new(x), Box::new(y), color))
+            }
+            TokenType::Circle => {
+                self.advance();
+                if let TokenType::LeftParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let x = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let y = self.parse_expression()?;
+                if let TokenType::RightParen = self.current_token().token_type {
+                    self.advance();
+                }
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let radius = self.parse_expression()?;
+                let color = if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    Some(Box::new(self.parse_expression()?))
+                } else {
+                    None
+                };
+                Ok(AstNode::Circle(Box::new(x), Box::new(y), Box::new(radius), color))
+            }
+            
+            // Sound
+            TokenType::Beep => {
+                self.advance();
+                Ok(AstNode::Beep)
+            }
+            TokenType::Sound => {
+                self.advance();
+                let freq = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let duration = self.parse_expression()?;
+                Ok(AstNode::Sound(Box::new(freq), Box::new(duration)))
+            }
+            
+            // System
+            TokenType::Randomize => {
+                self.advance();
+                let seed = if matches!(self.current_token().token_type, TokenType::Newline | TokenType::Eof | TokenType::Colon) {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expression()?))
+                };
+                Ok(AstNode::Randomize(seed))
+            }
+            TokenType::Swap => {
+                self.advance();
+                let var1 = if let TokenType::Identifier(n) = &self.current_token().token_type {
+                    let v = n.clone();
+                    self.advance();
+                    v
+                } else {
+                    return Err(Error::SyntaxError("Expected variable name after SWAP".to_string()));
+                };
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let var2 = if let TokenType::Identifier(n) = &self.current_token().token_type {
+                    let v = n.clone();
+                    self.advance();
+                    v
+                } else {
+                    return Err(Error::SyntaxError("Expected second variable name in SWAP".to_string()));
+                };
+                Ok(AstNode::Swap(var1, var2))
+            }
+            
             TokenType::Identifier(_) => {
                 // Could be an assignment without LET
                 let name = if let TokenType::Identifier(n) = &self.current_token().token_type {

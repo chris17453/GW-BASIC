@@ -149,4 +149,3 @@ The crate is organized into several modules:
 ## License
 
 MIT License - see the parent repository for details.
-

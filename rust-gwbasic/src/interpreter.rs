@@ -258,8 +258,127 @@ impl Interpreter {
                 }
                 Ok(())
             }
+            AstNode::PrintFile(file_num, exprs) => {
+                let num = self.evaluate_expression(&file_num)?.as_integer()?;
+                let mut output = String::new();
+                for expr in exprs {
+                    let val = self.evaluate_expression(&expr)?;
+                    output.push_str(&val.to_string());
+                }
+                if num == 0 {
+                    // Screen output
+                    println!("{}", output);
+                } else {
+                    self.file_manager.write_line(num, &output)?;
+                }
+                Ok(())
+            }
+            AstNode::InputFile(file_num, vars) => {
+                let num = self.evaluate_expression(&file_num)?.as_integer()?;
+                for var in vars {
+                    let line = self.file_manager.read_line(num)?;
+                    self.variables.insert(var, Value::String(line));
+                }
+                Ok(())
+            }
+            AstNode::WriteFile(file_num, exprs) => {
+                let num = self.evaluate_expression(&file_num)?.as_integer()?;
+                let mut parts = vec![];
+                for expr in exprs {
+                    let val = self.evaluate_expression(&expr)?;
+                    parts.push(format!("{}", val));
+                }
+                let output = parts.join(",");
+                self.file_manager.write_line(num, &output)?;
+                Ok(())
+            }
+            AstNode::LineInput(vars) => {
+                for var in vars {
+                    use std::io::{self, Write};
+                    print!("? ");
+                    io::stdout().flush().ok();
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).ok();
+                    self.variables.insert(var, Value::String(input.trim().to_string()));
+                }
+                Ok(())
+            }
+            AstNode::LineInputFile(file_num, var) => {
+                let num = self.evaluate_expression(&file_num)?.as_integer()?;
+                let line = self.file_manager.read_line(num)?;
+                self.variables.insert(var, Value::String(line));
+                Ok(())
+            }
             
-            // System
+            // Program Control
+            AstNode::List(start, end) => {
+                let mut line_nums: Vec<u32> = self.lines.keys().copied().collect();
+                line_nums.sort();
+                
+                for line_num in line_nums {
+                    if let Some(start_line) = start {
+                        if line_num < start_line {
+                            continue;
+                        }
+                    }
+                    if let Some(end_line) = end {
+                        if line_num > end_line {
+                            break;
+                        }
+                    }
+                    
+                    if let Some(statements) = self.lines.get(&line_num) {
+                        print!("{} ", line_num);
+                        for stmt in statements {
+                            print!("{:?} ", stmt);
+                        }
+                        println!();
+                    }
+                }
+                Ok(())
+            }
+            AstNode::New => {
+                self.lines.clear();
+                self.variables.clear();
+                self.for_stack.clear();
+                self.call_stack.clear();
+                self.data_items.clear();
+                self.data_pointer = 0;
+                Ok(())
+            }
+            AstNode::Run(start_line) => {
+                self.current_line = start_line.or_else(|| {
+                    let mut nums: Vec<u32> = self.lines.keys().copied().collect();
+                    nums.sort();
+                    nums.first().copied()
+                });
+                
+                if let Some(line) = self.current_line {
+                    self.execute_goto(line)
+                } else {
+                    Ok(())
+                }
+            }
+            
+            // Error Handling
+            AstNode::OnError(line) => {
+                // Store error handler line (simplified)
+                Ok(())
+            }
+            AstNode::Resume(line) => {
+                // Resume execution (simplified)
+                if let Some(resume_line) = line {
+                    self.execute_goto(resume_line)
+                } else {
+                    Ok(())
+                }
+            }
+            AstNode::ErrorStmt(error_num) => {
+                let num = self.evaluate_expression(&error_num)?.as_integer()?;
+                Err(Error::RuntimeError(format!("Error {}", num)))
+            }
+            
+            // File I/O
             AstNode::Randomize(seed) => {
                 // Set RNG seed - handled by RND function
                 if let Some(s) = seed {
@@ -274,6 +393,40 @@ impl Interpreter {
                     .ok_or_else(|| Error::UndefinedError(format!("Variable {} not defined", var2)))?;
                 self.variables.insert(var1, val2);
                 self.variables.insert(var2, val1);
+                Ok(())
+            }
+            AstNode::Clear => {
+                self.variables.clear();
+                self.for_stack.clear();
+                Ok(())
+            }
+            AstNode::Erase(vars) => {
+                for var in vars {
+                    self.variables.remove(&var);
+                }
+                Ok(())
+            }
+            AstNode::Out(port, value) => {
+                let _p = self.evaluate_expression(&port)?.as_integer()?;
+                let _v = self.evaluate_expression(&value)?.as_integer()?;
+                // Simulated hardware output
+                Ok(())
+            }
+            AstNode::Poke(addr, value) => {
+                let _a = self.evaluate_expression(&addr)?.as_integer()?;
+                let _v = self.evaluate_expression(&value)?.as_integer()?;
+                // Simulated memory write
+                Ok(())
+            }
+            AstNode::Wait(port, mask) => {
+                let _p = self.evaluate_expression(&port)?.as_integer()?;
+                let _m = self.evaluate_expression(&mask)?.as_integer()?;
+                // Simulated hardware wait
+                Ok(())
+            }
+            AstNode::DefFn(name, _params, _expr) => {
+                // Store user-defined function (simplified)
+                // Would need to store params and expression for later evaluation
                 Ok(())
             }
             
@@ -929,6 +1082,23 @@ impl Interpreter {
                     return Err(Error::RuntimeError("LOF requires 1 argument".to_string()));
                 }
                 lof_fn(eval_args[0].clone())
+            }
+            "POINT" => {
+                if eval_args.len() != 2 {
+                    return Err(Error::RuntimeError("POINT requires 2 arguments".to_string()));
+                }
+                point_fn(eval_args[0].clone(), eval_args[1].clone())
+            }
+            "SCREEN" => {
+                if eval_args.len() < 2 || eval_args.len() > 3 {
+                    return Err(Error::RuntimeError("SCREEN requires 2 or 3 arguments".to_string()));
+                }
+                let color_num = if eval_args.len() == 3 {
+                    Some(eval_args[2].clone())
+                } else {
+                    None
+                };
+                screen_fn(eval_args[0].clone(), eval_args[1].clone(), color_num)
             }
             
             _ => Err(Error::UndefinedError(format!("Function {} not defined", name))),

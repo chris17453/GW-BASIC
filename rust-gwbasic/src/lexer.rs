@@ -32,6 +32,7 @@ pub enum TokenType {
     // Keywords - I/O
     Input,
     LineInput,
+    Write,
     Open,
     Close,
     Load,
@@ -402,6 +403,7 @@ impl Lexer {
             
             // I/O
             "INPUT" => TokenType::Input,
+            "WRITE" => TokenType::Write,
             "LINE" => {
                 // Check if followed by INPUT
                 TokenType::Identifier(ident.clone())

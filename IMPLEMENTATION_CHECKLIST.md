@@ -1,14 +1,14 @@
 # GW-BASIC Complete Implementation Checklist
 
 ## Implementation Summary
-- **Total Functions: 50/60+ (83%)**
-- **Total Statements: 35/100+ (35%)**
+- **Total Functions: 52/60+ (87%)**
+- **Total Statements: 55/100+ (55%)**
 - **Total Operators: 19/19 (100%)**
-- **Overall Progress: ~58%**
+- **Overall Progress: ~67%**
 
 ---
 
-## Functions (50 Implemented)
+## Functions (52 Implemented)
 
 ### Math Functions (15/15 - 100%)
 - [x] ABS(n) - Absolute value
@@ -58,7 +58,7 @@
 - [x] LOC(n) - Current position
 - [x] LOF(n) - File length
 
-### System Functions (13/13 - 100%)
+### System Functions (12/12 - 100%)
 - [x] CSRLIN - Current row
 - [x] DATE$ - Current date
 - [x] FRE(n) - Free memory
@@ -70,18 +70,18 @@
 - [x] TIMER - Time since midnight
 - [x] VARPTR(var) - Variable pointer
 
-### Screen Functions (0/2 - 0%)
-- [ ] POINT(x,y) - Get pixel color
-- [ ] SCREEN(row,col[,z]) - Get screen character
+### Screen Functions (2/2 - 100%)
+- [x] POINT(x,y) - Get pixel color
+- [x] SCREEN(row,col[,z]) - Get screen character
 
 ---
 
-## Statements (35 Implemented)
+## Statements (55 Implemented)
 
-### Program Control (10/15 - 67%)
-- [ ] RUN - Execute program
-- [ ] LIST - List program lines
-- [ ] NEW - Clear program
+### Program Control (13/15 - 87%)
+- [x] RUN - Execute program
+- [x] LIST - List program lines
+- [x] NEW - Clear program
 - [ ] LOAD - Load program from disk
 - [ ] SAVE - Save program to disk
 - [ ] MERGE - Merge program from disk
@@ -109,16 +109,16 @@
 - [x] NEXT - End of FOR loop
 - [x] WHILE...WEND - While loop
 
-### Data I/O (6/12 - 50%)
+### Data I/O (10/12 - 83%)
 - [x] PRINT - Output to screen
-- [ ] PRINT# - Output to file
+- [x] PRINT# - Output to file
 - [ ] PRINT USING - Formatted output
 - [x] INPUT - Input from keyboard
-- [ ] INPUT# - Input from file
-- [ ] LINE INPUT - Input entire line
-- [ ] LINE INPUT# - Input line from file
-- [ ] WRITE - Write to screen
-- [ ] WRITE# - Write to file
+- [x] INPUT# - Input from file
+- [x] LINE INPUT - Input entire line
+- [x] LINE INPUT# - Input line from file
+- [x] WRITE - Write to screen
+- [x] WRITE# - Write to file
 - [x] READ - Read from DATA
 - [x] DATA - Data storage
 - [x] RESTORE - Reset DATA pointer
@@ -126,8 +126,8 @@
 ### Variables & Arrays (5/10 - 50%)
 - [x] LET - Assignment
 - [x] DIM - Dimension arrays
-- [x] ERASE - Erase array (defined)
-- [x] CLEAR - Clear variables (defined)
+- [x] ERASE - Erase array
+- [x] CLEAR - Clear variables
 - [x] SWAP - Swap variables
 - [ ] DEFSTR - Define string variables
 - [ ] DEFINT - Define integer variables
@@ -153,7 +153,7 @@
 - [x] LOCATE - Position cursor
 - [x] COLOR - Set colors
 - [x] SCREEN - Set screen mode
-- [x] WIDTH - Set screen width (defined)
+- [x] WIDTH - Set screen width
 - [ ] VIEW - Define viewport
 - [ ] WINDOW - Define window coordinates
 - [x] PSET - Set pixel
@@ -171,24 +171,30 @@
 - [x] SOUND - Generate sound
 - [ ] PLAY - Play music
 
-### System (4/17 - 24%)
+### Error Handling (3/3 - 100%)
+- [x] ON ERROR - Error trap
+- [x] RESUME - Resume after error
+- [x] ERROR - Generate error
+
+### System (10/17 - 59%)
 - [x] RANDOMIZE - Seed random generator
 - [x] SWAP - Swap variables
-- [x] CLEAR - Clear variables (defined)
-- [x] ERASE - Erase arrays (defined)
+- [x] CLEAR - Clear variables
+- [x] ERASE - Erase arrays
+- [x] OUT - Output to port
+- [x] POKE - Write to memory
+- [x] WAIT - Wait for port
+- [x] DEF FN - Define function
 - [ ] KEY - Define function keys
 - [ ] KEY ON/OFF/LIST - Function key control
 - [ ] ON KEY - Function key trap
-- [ ] ON ERROR - Error trap
-- [ ] RESUME - Resume after error
-- [ ] ERROR - Generate error
-- [ ] WAIT - Wait for port
-- [ ] OUT - Output to port
-- [ ] POKE - Write to memory
-- [ ] DEF FN - Define function
 - [ ] DEF SEG - Define segment
 - [ ] BLOAD - Binary load
 - [ ] BSAVE - Binary save
+- [ ] CALL - Call machine language
+- [ ] USR - Call USR function
+- [ ] TRON - Trace on
+- [ ] TROFF - Trace off
 
 ### Other (1/2 - 50%)
 - [x] REM - Comment
@@ -234,16 +240,17 @@
 | **Conversion Functions** | 6 | 6 | 100% |
 | **File Functions** | 3 | 3 | 100% |
 | **System Functions** | 10 | 12 | 83% |
-| **Screen Functions** | 0 | 2 | 0% |
-| **Program Control** | 10 | 15 | 67% |
+| **Screen Functions** | 2 | 2 | 100% |
+| **Program Control** | 13 | 15 | 87% |
 | **Program Editing** | 0 | 6 | 0% |
 | **Control Flow** | 4 | 4 | 100% |
-| **Data I/O** | 6 | 12 | 50% |
+| **Data I/O** | 10 | 12 | 83% |
 | **Variables/Arrays** | 5 | 10 | 50% |
 | **File Operations** | 2 | 11 | 18% |
 | **Graphics** | 8 | 16 | 50% |
 | **Sound** | 2 | 3 | 67% |
-| **System Statements** | 4 | 17 | 24% |
+| **Error Handling** | 3 | 3 | 100% |
+| **System Statements** | 10 | 17 | 59% |
 | **Operators** | 19 | 19 | 100% |
-| **TOTAL** | **110** | **188** | **58%** |
+| **TOTAL** | **132** | **188** | **70%** |
 

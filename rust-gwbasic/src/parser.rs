@@ -49,12 +49,31 @@ pub enum AstNode {
     // Statements - File I/O
     Open(String, Box<AstNode>, String),  // filename, file_number, mode
     Close(Vec<i32>),
+    PrintFile(Box<AstNode>, Vec<AstNode>),  // file_number, expressions
+    InputFile(Box<AstNode>, Vec<String>),   // file_number, variables
+    WriteFile(Box<AstNode>, Vec<AstNode>),  // file_number, expressions
+    LineInput(Vec<String>),                  // variables
+    LineInputFile(Box<AstNode>, String),    // file_number, variable
+    
+    // Statements - Program Control
+    List(Option<u32>, Option<u32>),         // start_line, end_line
+    New,
+    Run(Option<u32>),                       // optional start line
+    
+    // Statements - Error Handling
+    OnError(u32),                           // line number for error handler
+    Resume(Option<u32>),                    // optional line number
+    ErrorStmt(Box<AstNode>),                // error number to raise
     
     // Statements - System
     Randomize(Option<Box<AstNode>>),
     Swap(String, String),
     Clear,
     Erase(Vec<String>),
+    Out(Box<AstNode>, Box<AstNode>),       // port, value
+    Poke(Box<AstNode>, Box<AstNode>),      // address, value
+    Wait(Box<AstNode>, Box<AstNode>),      // port, mask
+    DefFn(String, Vec<String>, Box<AstNode>), // name, params, expression
     
     // Expressions
     Literal(Value),
@@ -199,6 +218,85 @@ impl Parser {
             TokenType::Stop => {
                 self.advance();
                 Ok(AstNode::Stop)
+            }
+            TokenType::List => {
+                self.advance();
+                // Parse optional line range
+                let start = if let TokenType::Integer(n) = self.current_token().token_type {
+                    self.advance();
+                    Some(n as u32)
+                } else {
+                    None
+                };
+                let end = if let TokenType::Minus = self.current_token().token_type {
+                    self.advance();
+                    if let TokenType::Integer(n) = self.current_token().token_type {
+                        self.advance();
+                        Some(n as u32)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                Ok(AstNode::List(start, end))
+            }
+            TokenType::New => {
+                self.advance();
+                Ok(AstNode::New)
+            }
+            TokenType::Run => {
+                self.advance();
+                let start_line = if let TokenType::Integer(n) = self.current_token().token_type {
+                    self.advance();
+                    Some(n as u32)
+                } else {
+                    None
+                };
+                Ok(AstNode::Run(start_line))
+            }
+            TokenType::Write => {
+                self.advance();
+                // Check if it's WRITE# (file output)
+                if let TokenType::Hash = self.current_token().token_type {
+                    self.advance();
+                    let file_num = self.parse_expression()?;
+                    
+                    if let TokenType::Comma = self.current_token().token_type {
+                        self.advance();
+                    }
+                    
+                    let mut expressions = Vec::new();
+                    while !self.is_at_end() {
+                        match &self.current_token().token_type {
+                            TokenType::Eof | TokenType::Newline | TokenType::Colon => break,
+                            TokenType::Comma => {
+                                self.advance();
+                            }
+                            _ => {
+                                expressions.push(self.parse_expression()?);
+                            }
+                        }
+                    }
+                    
+                    Ok(AstNode::WriteFile(Box::new(file_num), expressions))
+                } else {
+                    // Regular WRITE (to screen)
+                    let mut expressions = Vec::new();
+                    while !self.is_at_end() {
+                        match &self.current_token().token_type {
+                            TokenType::Eof | TokenType::Newline | TokenType::Colon => break,
+                            TokenType::Comma => {
+                                self.advance();
+                            }
+                            _ => {
+                                expressions.push(self.parse_expression()?);
+                            }
+                        }
+                    }
+                    
+                    Ok(AstNode::PrintFile(Box::new(AstNode::Literal(Value::Integer(0))), expressions))
+                }
             }
             TokenType::On => {
                 self.advance();
@@ -445,6 +543,34 @@ impl Parser {
 
     fn parse_print(&mut self) -> Result<AstNode> {
         self.advance(); // Skip PRINT
+        
+        // Check if it's PRINT# (file output)
+        if let TokenType::Hash = self.current_token().token_type {
+            self.advance();
+            let file_num = self.parse_expression()?;
+            
+            // Expect comma after file number
+            if let TokenType::Comma = self.current_token().token_type {
+                self.advance();
+            }
+            
+            let mut expressions = Vec::new();
+            while !self.is_at_end() {
+                match &self.current_token().token_type {
+                    TokenType::Eof | TokenType::Newline | TokenType::Colon => break,
+                    TokenType::Semicolon | TokenType::Comma => {
+                        self.advance();
+                    }
+                    _ => {
+                        expressions.push(self.parse_expression()?);
+                    }
+                }
+            }
+            
+            return Ok(AstNode::PrintFile(Box::new(file_num), expressions));
+        }
+        
+        // Regular PRINT
         let mut expressions = Vec::new();
 
         while !self.is_at_end() {
@@ -588,7 +714,38 @@ impl Parser {
 
     fn parse_input(&mut self) -> Result<AstNode> {
         self.advance(); // Skip INPUT
+        
+        // Check if it's INPUT# (file input)
+        if let TokenType::Hash = self.current_token().token_type {
+            self.advance();
+            let file_num = self.parse_expression()?;
+            
+            // Expect comma after file number
+            if let TokenType::Comma = self.current_token().token_type {
+                self.advance();
+            }
+            
+            let mut vars = Vec::new();
+            while !self.is_at_end() {
+                match &self.current_token().token_type {
+                    TokenType::Identifier(name) => {
+                        vars.push(name.clone());
+                        self.advance();
 
+                        if let TokenType::Comma = self.current_token().token_type {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            
+            return Ok(AstNode::InputFile(Box::new(file_num), vars));
+        }
+
+        // Regular INPUT
         let mut vars = Vec::new();
         while !self.is_at_end() {
             match &self.current_token().token_type {

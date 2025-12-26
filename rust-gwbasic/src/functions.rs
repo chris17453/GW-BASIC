@@ -392,6 +392,26 @@ pub fn lof_fn(file_num: Value) -> Result<Value> {
     Ok(Value::Integer(0))
 }
 
+/// Screen functions
+pub fn point_fn(x: Value, y: Value) -> Result<Value> {
+    let _x = x.as_integer()?;
+    let _y = y.as_integer()?;
+    // Return pixel color at position (simulated)
+    Ok(Value::Integer(0))
+}
+
+pub fn screen_fn(row: Value, col: Value, color_num: Option<Value>) -> Result<Value> {
+    let _r = row.as_integer()?;
+    let _c = col.as_integer()?;
+    if let Some(_cn) = color_num {
+        // Return color at position
+        Ok(Value::Integer(0))
+    } else {
+        // Return character at position
+        Ok(Value::Integer(32)) // Space
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

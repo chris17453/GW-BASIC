@@ -67,6 +67,14 @@ impl Value {
     pub fn is_string(&self) -> bool {
         matches!(self, Value::String(_))
     }
+    
+    /// Convert value to string with Result
+    pub fn as_string_result(&self) -> Result<String> {
+        match self {
+            Value::String(s) => Ok(s.clone()),
+            _ => Err(Error::TypeError("Expected string value".to_string())),
+        }
+    }
 }
 
 impl fmt::Display for Value {

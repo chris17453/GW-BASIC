@@ -1322,6 +1322,66 @@ impl Interpreter {
                 screen_fn(eval_args[0].clone(), eval_args[1].clone(), color_num)
             }
             
+            // Error handling functions
+            "ERL" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("ERL requires 0 arguments".to_string()));
+                }
+                erl_fn()
+            }
+            "ERR" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("ERR requires 0 arguments".to_string()));
+                }
+                err_fn()
+            }
+            "ERDEV" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("ERDEV requires 0 arguments".to_string()));
+                }
+                erdev_fn()
+            }
+            "ERDEV$" => {
+                if !eval_args.is_empty() {
+                    return Err(Error::RuntimeError("ERDEV$ requires 0 arguments".to_string()));
+                }
+                erdev_string_fn()
+            }
+            
+            // Environment and file functions
+            "ENVIRON$" | "ENVIRON" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("ENVIRON$ requires 1 argument".to_string()));
+                }
+                environ_fn(eval_args[0].clone())
+            }
+            "IOCTL$" | "IOCTL" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("IOCTL$ requires 1 argument".to_string()));
+                }
+                ioctl_fn(eval_args[0].clone())
+            }
+            "FILEATTR" => {
+                if eval_args.len() != 2 {
+                    return Err(Error::RuntimeError("FILEATTR requires 2 arguments".to_string()));
+                }
+                fileattr_fn(eval_args[0].clone(), eval_args[1].clone())
+            }
+            
+            // Joystick functions
+            "STICK" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("STICK requires 1 argument".to_string()));
+                }
+                stick_fn(eval_args[0].clone())
+            }
+            "STRIG" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("STRIG requires 1 argument".to_string()));
+                }
+                strig_fn(eval_args[0].clone())
+            }
+            
             _ => Err(Error::UndefinedError(format!("Function {} not defined", name))),
         }
     }

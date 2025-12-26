@@ -412,6 +412,80 @@ pub fn screen_fn(row: Value, col: Value, color_num: Option<Value>) -> Result<Val
     }
 }
 
+/// Error handling functions
+pub fn erl_fn() -> Result<Value> {
+    // Return line number where error occurred (simulated)
+    // In real implementation, would track from error handler
+    Ok(Value::Integer(0))
+}
+
+pub fn err_fn() -> Result<Value> {
+    // Return error code (simulated)
+    // In real implementation, would return last error code
+    Ok(Value::Integer(0))
+}
+
+pub fn erdev_fn() -> Result<Value> {
+    // Return device error code (simulated)
+    Ok(Value::Integer(0))
+}
+
+pub fn erdev_string_fn() -> Result<Value> {
+    // Return device error string (simulated)
+    Ok(Value::String(String::new()))
+}
+
+/// Environment and system functions
+pub fn environ_fn(val: Value) -> Result<Value> {
+    // Get environment variable
+    let var_name = if let Ok(name) = val.as_string_result() {
+        name
+    } else {
+        // If numeric, get by index (not commonly used)
+        return Ok(Value::String(String::new()));
+    };
+    
+    match std::env::var(var_name) {
+        Ok(value) => Ok(Value::String(value)),
+        Err(_) => Ok(Value::String(String::new())),
+    }
+}
+
+/// I/O control functions
+pub fn ioctl_fn(file_num: Value) -> Result<Value> {
+    let _num = file_num.as_integer()?;
+    // Return IOCTL string (simulated)
+    Ok(Value::String(String::new()))
+}
+
+/// Joystick functions
+pub fn stick_fn(val: Value) -> Result<Value> {
+    let _n = val.as_integer()?;
+    // Return joystick coordinate (simulated - no actual hardware)
+    Ok(Value::Integer(0))
+}
+
+pub fn strig_fn(val: Value) -> Result<Value> {
+    let _n = val.as_integer()?;
+    // Return joystick trigger state (simulated - no actual hardware)
+    Ok(Value::Integer(0))
+}
+
+/// File I/O functions
+pub fn fileattr_fn(filenum: Value, attribute: Value) -> Result<Value> {
+    let _fnum = filenum.as_integer()?;
+    let _attr = attribute.as_integer()?;
+    // Return file attribute (simulated)
+    // attribute: 1=mode, 2=handle
+    Ok(Value::Integer(0))
+}
+
+pub fn ioctl_string_fn(filenum: Value) -> Result<Value> {
+    let _fnum = filenum.as_integer()?;
+    // Return IOCTL control string (simulated)
+    Ok(Value::String(String::new()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

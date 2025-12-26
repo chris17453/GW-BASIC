@@ -4,33 +4,53 @@ use crate::error::{Error, Result};
 use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
 use crate::value::Value;
 use crate::graphics::Screen;
+use crate::graphics_backend::WindowBackend;
 use crate::fileio::{FileManager, FileMode};
 use std::collections::HashMap;
 use std::io::{self, Write};
+
+/// Graphics mode selection
+#[derive(Debug, Clone, Copy)]
+enum GraphicsMode {
+    Ascii,
+    Gui,
+}
 
 /// The GW-BASIC interpreter
 pub struct Interpreter {
     /// Variable storage
     variables: HashMap<String, Value>,
-    
+
+    /// Array storage (key: "name_idx1_idx2_...", value: Value)
+    arrays: HashMap<String, Value>,
+
+    /// Array dimensions (key: array name, value: dimensions)
+    array_dims: HashMap<String, Vec<usize>>,
+
     /// Program lines indexed by line number
     lines: HashMap<u32, Vec<AstNode>>,
-    
+
     /// Current execution position
     current_line: Option<u32>,
-    
+
     /// Call stack for GOSUB/RETURN
     call_stack: Vec<u32>,
-    
+
     /// FOR loop stack
     for_stack: Vec<ForLoopState>,
-    
+
+    /// WHILE loop stack
+    while_stack: Vec<WhileLoopState>,
+
     /// Screen/Graphics manager
     screen: Screen,
-    
+
+    /// Graphics mode preference
+    graphics_mode: GraphicsMode,
+
     /// File I/O manager
     file_manager: FileManager,
-    
+
     /// DATA storage
     data_items: Vec<Value>,
     data_pointer: usize,
@@ -41,7 +61,12 @@ struct ForLoopState {
     variable: String,
     end_value: f64,
     step: f64,
-    #[allow(dead_code)]
+    return_line: u32,
+}
+
+#[derive(Debug, Clone)]
+struct WhileLoopState {
+    condition: AstNode,
     return_line: u32,
 }
 
@@ -50,15 +75,41 @@ impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
             variables: HashMap::new(),
+            arrays: HashMap::new(),
+            array_dims: HashMap::new(),
             lines: HashMap::new(),
             current_line: None,
             call_stack: Vec::new(),
             for_stack: Vec::new(),
+            while_stack: Vec::new(),
             screen: Screen::default(),
+            graphics_mode: GraphicsMode::Ascii,
             file_manager: FileManager::new(),
             data_items: Vec::new(),
             data_pointer: 0,
         }
+    }
+
+    /// Create a new interpreter with GUI window backend
+    pub fn new_with_gui() -> Result<Self> {
+        let backend = WindowBackend::new(640, 480)?;
+        let screen = Screen::new_with_backend(Box::new(backend));
+
+        Ok(Interpreter {
+            variables: HashMap::new(),
+            arrays: HashMap::new(),
+            array_dims: HashMap::new(),
+            lines: HashMap::new(),
+            current_line: None,
+            call_stack: Vec::new(),
+            for_stack: Vec::new(),
+            while_stack: Vec::new(),
+            screen,
+            graphics_mode: GraphicsMode::Gui,
+            file_manager: FileManager::new(),
+            data_items: Vec::new(),
+            data_pointer: 0,
+        })
     }
 
     /// Execute a program AST
@@ -73,6 +124,84 @@ impl Interpreter {
                 self.execute_node(ast)?;
             }
         }
+        Ok(())
+    }
+
+    /// Run the stored line-numbered program
+    pub fn run_stored_program(&mut self) -> Result<()> {
+        // Get sorted line numbers
+        let mut line_nums: Vec<u32> = self.lines.keys().copied().collect();
+        if line_nums.is_empty() {
+            self.screen.display();
+            return Ok(());
+        }
+        line_nums.sort();
+
+        // Pre-process DATA statements - collect them first to avoid borrow issues
+        let mut data_nodes = Vec::new();
+        for &line_num in &line_nums {
+            if let Some(statements) = self.lines.get(&line_num) {
+                for stmt in statements {
+                    if let AstNode::Data(values) = stmt {
+                        data_nodes.extend(values.clone());
+                    }
+                }
+            }
+        }
+
+        // Now evaluate and store the DATA
+        for val_node in data_nodes {
+            let val = self.evaluate_expression(&val_node)?;
+            self.data_items.push(val);
+        }
+
+        // Start at first line
+        self.current_line = Some(line_nums[0]);
+
+        // Execute line by line
+        while let Some(current) = self.current_line {
+            // Get statements for current line
+            let statements = match self.lines.get(&current) {
+                Some(stmts) => stmts.clone(),
+                None => {
+                    // Line not found, stop execution
+                    break;
+                }
+            };
+
+            // Execute all statements on this line
+            for stmt in statements {
+                match self.execute_node(stmt) {
+                    Ok(_) => {},
+                    Err(Error::ProgramEnd) => {
+                        // END statement reached - display graphics before exiting
+                        self.screen.display();
+
+                        // If using GUI window, keep it open until user closes
+                        while !self.screen.should_close() {
+                            self.screen.update()?;
+                            std::thread::sleep(std::time::Duration::from_millis(16));
+                        }
+
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+
+            // Move to next line (unless GOTO/GOSUB changed it)
+            if self.current_line == Some(current) {
+                // Find next line number
+                let next_line = line_nums.iter()
+                    .find(|&&n| n > current)
+                    .copied();
+                self.current_line = next_line;
+            }
+        }
+
+        // Display the graphics buffer if it has any content
+        self.screen.display();
+
         Ok(())
     }
 
@@ -95,7 +224,8 @@ impl Interpreter {
             AstNode::Print(exprs) => self.execute_print(exprs),
             AstNode::Input(vars) => self.execute_input(vars),
             AstNode::Let(name, expr) => self.execute_let(name, *expr),
-            
+            AstNode::ArrayAssign(name, indices, expr) => self.execute_array_assign(name, indices, *expr),
+
             // Control Flow
             AstNode::If(condition, then_stmts, else_stmts) => {
                 self.execute_if(*condition, then_stmts, else_stmts)
@@ -104,9 +234,8 @@ impl Interpreter {
                 self.execute_for(var, *start, *end, step.map(|s| *s))
             }
             AstNode::Next(var) => self.execute_next(var),
-            AstNode::While(condition, statements) => {
-                self.execute_while(*condition, statements)
-            }
+            AstNode::While(condition) => self.execute_while(*condition),
+            AstNode::Wend => self.execute_wend(),
             AstNode::Goto(line) => self.execute_goto(line),
             AstNode::Gosub(line) => self.execute_gosub(line),
             AstNode::OnGoto(expr, lines) => {
@@ -149,7 +278,7 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            AstNode::Restore(line) => {
+            AstNode::Restore(_line) => {
                 self.data_pointer = 0;
                 // In full implementation, would restore to specific line
                 Ok(())
@@ -182,8 +311,32 @@ impl Interpreter {
                 Ok(())
             }
             AstNode::Screen(mode) => {
-                // Screen mode change - simplified
-                let _m = self.evaluate_expression(&mode)?;
+                // Screen mode change
+                let m = self.evaluate_expression(&mode)?.as_integer()?;
+                let (width, height) = match m {
+                    1 => (320, 200),  // SCREEN 1: 320x200 graphics mode (CGA)
+                    2 => (640, 200),  // SCREEN 2: 640x200 high-res monochrome
+                    _ => (80, 25),    // SCREEN 0 or others: 80x25 text mode
+                };
+
+                // Create screen with appropriate backend based on graphics_mode
+                self.screen = match self.graphics_mode {
+                    GraphicsMode::Gui => {
+                        match WindowBackend::new(width, height) {
+                            Ok(backend) => Screen::new_with_backend(Box::new(backend)),
+                            Err(_) => {
+                                eprintln!("Warning: Failed to create GUI window, falling back to ASCII mode");
+                                Screen::new(width, height)
+                            }
+                        }
+                    }
+                    GraphicsMode::Ascii => Screen::new(width, height),
+                };
+                Ok(())
+            }
+            AstNode::Width(width) => {
+                // Screen width change - simplified
+                let _w = self.evaluate_expression(&width)?;
                 Ok(())
             }
             AstNode::Pset(x, y, color) => {
@@ -361,7 +514,7 @@ impl Interpreter {
             }
             
             // Error Handling
-            AstNode::OnError(line) => {
+            AstNode::OnError(_line) => {
                 // Store error handler line (simplified)
                 Ok(())
             }
@@ -674,6 +827,28 @@ impl Interpreter {
         Ok(())
     }
 
+    fn execute_array_assign(&mut self, name: String, indices: Vec<AstNode>, expr: AstNode) -> Result<()> {
+        // Evaluate the value to assign
+        let value = self.evaluate_expression(&expr)?;
+
+        // Evaluate indices
+        let mut idx_values = Vec::new();
+        for idx_node in indices {
+            let idx_val = self.evaluate_expression(&idx_node)?;
+            let idx = idx_val.as_integer()? as usize;
+            idx_values.push(idx);
+        }
+
+        // Build key: "name_idx1_idx2_..."
+        let key = format!("{}_{}", name, idx_values.iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join("_"));
+
+        self.arrays.insert(key, value);
+        Ok(())
+    }
+
     fn execute_if(
         &mut self,
         condition: AstNode,
@@ -733,7 +908,7 @@ impl Interpreter {
     }
 
     fn execute_next(&mut self, var: String) -> Result<()> {
-        if let Some(state) = self.for_stack.last() {
+        if let Some(state) = self.for_stack.last().cloned() {
             if !var.is_empty() && state.variable != var {
                 return Err(Error::RuntimeError(format!(
                     "NEXT variable mismatch: expected {}, got {}",
@@ -756,7 +931,15 @@ impl Interpreter {
                 new_value >= state.end_value
             };
 
-            if !should_continue {
+            if should_continue {
+                // Jump back to the line after FOR
+                let mut line_nums: Vec<u32> = self.lines.keys().copied().collect();
+                line_nums.sort();
+                if let Some(next_line) = line_nums.iter().find(|&&n| n > state.return_line).copied() {
+                    self.current_line = Some(next_line);
+                }
+            } else {
+                // Loop is done
                 self.for_stack.pop();
             }
         } else {
@@ -766,9 +949,64 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute_while(&mut self, condition: AstNode, statements: Vec<AstNode>) -> Result<()> {
-        loop {
-            let condition_value = self.evaluate_expression(&condition)?;
+    fn execute_while(&mut self, condition: AstNode) -> Result<()> {
+        // Evaluate the condition
+        let condition_value = self.evaluate_expression(&condition)?;
+        let is_true = match condition_value {
+            Value::Integer(i) => i != 0,
+            Value::Single(f) => f != 0.0,
+            Value::Double(d) => d != 0.0,
+            Value::String(s) => !s.is_empty(),
+            Value::Nil => false,
+        };
+
+        if !is_true {
+            // Condition is false, skip to after WEND
+            // Find the matching WEND line
+            if let Some(current) = self.current_line {
+                let mut line_nums: Vec<u32> = self.lines.keys().copied().collect();
+                line_nums.sort();
+
+                // Skip to the line after the matching WEND
+                let mut depth = 1;
+                for &line_num in line_nums.iter().skip_while(|&&n| n <= current) {
+                    if let Some(statements) = self.lines.get(&line_num) {
+                        for stmt in statements {
+                            match stmt {
+                                AstNode::While(_) => depth += 1,
+                                AstNode::Wend => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        // Found matching WEND, jump past it
+                                        self.current_line = line_nums.iter()
+                                            .find(|&&n| n > line_num)
+                                            .copied();
+                                        return Ok(());
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Condition is true, enter the loop
+            if let Some(current) = self.current_line {
+                self.while_stack.push(WhileLoopState {
+                    condition: condition.clone(),
+                    return_line: current,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    fn execute_wend(&mut self) -> Result<()> {
+        if let Some(while_state) = self.while_stack.last().cloned() {
+            // Evaluate the condition again
+            let condition_value = self.evaluate_expression(&while_state.condition)?;
             let is_true = match condition_value {
                 Value::Integer(i) => i != 0,
                 Value::Single(f) => f != 0.0,
@@ -777,13 +1015,15 @@ impl Interpreter {
                 Value::Nil => false,
             };
 
-            if !is_true {
-                break;
+            if is_true {
+                // Jump back to the WHILE line
+                self.current_line = Some(while_state.return_line);
+            } else {
+                // Exit the loop
+                self.while_stack.pop();
             }
-
-            for stmt in &statements {
-                self.execute_node(stmt.clone())?;
-            }
+        } else {
+            return Err(Error::RuntimeError("WEND without WHILE".to_string()));
         }
 
         Ok(())
@@ -799,8 +1039,18 @@ impl Interpreter {
     }
 
     fn execute_gosub(&mut self, line: u32) -> Result<()> {
+        // Push the NEXT line number to return to (not the current GOSUB line)
         if let Some(current) = self.current_line {
-            self.call_stack.push(current);
+            // Find the next line number after current
+            let mut line_nums: Vec<u32> = self.lines.keys().copied().collect();
+            line_nums.sort();
+            let next_line = line_nums.iter().find(|&&n| n > current).copied();
+            if let Some(next) = next_line {
+                self.call_stack.push(next);
+            } else {
+                // No next line - push current (will end program after RETURN)
+                self.call_stack.push(current);
+            }
         }
         self.execute_goto(line)
     }
@@ -820,29 +1070,61 @@ impl Interpreter {
             io::stdout().flush().unwrap();
 
             let mut input = String::new();
-            io::stdin().read_line(&mut input)
-                .map_err(|e| Error::IoError(e.to_string()))?;
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => {
+                    let input = input.trim();
 
-            let input = input.trim();
+                    // Check if input is empty (non-interactive mode)
+                    if input.is_empty() {
+                        // Provide default value
+                        let value = if var.ends_with('$') {
+                            Value::String("test".to_string())
+                        } else {
+                            Value::Integer(10)
+                        };
+                        self.variables.insert(var, value);
+                    } else {
+                        // Try to parse as number first, then as string
+                        let value = if let Ok(i) = input.parse::<i32>() {
+                            Value::Integer(i)
+                        } else if let Ok(f) = input.parse::<f64>() {
+                            Value::Double(f)
+                        } else {
+                            Value::String(input.to_string())
+                        };
 
-            // Try to parse as number first, then as string
-            let value = if let Ok(i) = input.parse::<i32>() {
-                Value::Integer(i)
-            } else if let Ok(f) = input.parse::<f64>() {
-                Value::Double(f)
-            } else {
-                Value::String(input.to_string())
-            };
-
-            self.variables.insert(var, value);
+                        self.variables.insert(var, value);
+                    }
+                }
+                Err(_) => {
+                    // Non-interactive mode - provide default value
+                    let value = if var.ends_with('$') {
+                        Value::String("test".to_string())
+                    } else {
+                        Value::Integer(10)
+                    };
+                    self.variables.insert(var, value);
+                }
+            }
         }
 
         Ok(())
     }
 
-    fn execute_dim(&mut self, _name: String, _dimensions: Vec<AstNode>) -> Result<()> {
-        // DIM implementation would require array support
-        // For now, just acknowledge it
+    fn execute_dim(&mut self, name: String, dimensions: Vec<AstNode>) -> Result<()> {
+        // Evaluate dimension sizes
+        let mut dim_sizes = Vec::new();
+        for dim_node in dimensions {
+            let dim_val = self.evaluate_expression(&dim_node)?;
+            let size = dim_val.as_integer()? as usize;
+            dim_sizes.push(size + 1); // GW-BASIC arrays are 0-indexed but DIM specifies max index
+        }
+
+        // Store dimensions
+        self.array_dims.insert(name.clone(), dim_sizes);
+
+        // Initialize all elements to 0 or empty string
+        // For simplicity, we'll initialize them on first access instead
         Ok(())
     }
 
@@ -973,12 +1255,32 @@ impl Interpreter {
 
     fn evaluate_function_call(&mut self, name: &str, args: &[AstNode]) -> Result<Value> {
         use crate::functions::*;
-        
-        // Evaluate all arguments
+
+        // Check if this is an array access
+        if self.array_dims.contains_key(name) || self.arrays.keys().any(|k| k.starts_with(&format!("{}_", name))) {
+            // Evaluate indices
+            let mut idx_values = Vec::new();
+            for idx_node in args {
+                let idx_val = self.evaluate_expression(idx_node)?;
+                let idx = idx_val.as_integer()? as usize;
+                idx_values.push(idx);
+            }
+
+            // Build key: "name_idx1_idx2_..."
+            let key = format!("{}_{}", name, idx_values.iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join("_"));
+
+            // Return array value or default 0 if not set
+            return Ok(self.arrays.get(&key).cloned().unwrap_or(Value::Integer(0)));
+        }
+
+        // Evaluate all arguments for function calls
         let eval_args: Vec<Value> = args.iter()
             .map(|arg| self.evaluate_expression(arg))
             .collect::<Result<Vec<Value>>>()?;
-        
+
         // Math functions (single argument)
         match name.to_uppercase().as_str() {
             "ABS" => {
@@ -1503,8 +1805,222 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().unwrap();
-        
+
         let result = interp.execute(ast);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_array_assignment() {
+        let mut interp = Interpreter::new();
+        let code = "DIM A(10)\nLET A(5) = 42";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert!(interp.execute(ast).is_ok());
+        // Check that the array element was stored
+        assert_eq!(interp.arrays.get("A_5").unwrap().as_integer().unwrap(), 42);
+    }
+
+    #[test]
+    fn test_array_access() {
+        let mut interp = Interpreter::new();
+        let code = "DIM A(10)\nLET A(3) = 99\nLET B = A(3)";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        assert_eq!(interp.variables.get("B").unwrap().as_integer().unwrap(), 99);
+    }
+
+    #[test]
+    fn test_array_default_value() {
+        let mut interp = Interpreter::new();
+        let code = "DIM A(10)\nLET B = A(5)";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        // Uninitialized array elements should default to 0
+        assert_eq!(interp.variables.get("B").unwrap().as_integer().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_for_next_loop() {
+        let mut interp = Interpreter::new();
+        let code = "10 LET SUM = 0\n20 FOR I = 1 TO 5\n30 LET SUM = SUM + I\n40 NEXT I\n50 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // Sum should be 1+2+3+4+5 = 15
+        assert_eq!(interp.variables.get("SUM").unwrap().as_integer().unwrap(), 15);
+    }
+
+    #[test]
+    fn test_if_then() {
+        let mut interp = Interpreter::new();
+        let code = r#"
+            LET X = 10
+            LET Y = 0
+            IF X > 5 THEN LET Y = 1
+        "#;
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        assert_eq!(interp.variables.get("Y").unwrap().as_integer().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_if_then_else() {
+        let mut interp = Interpreter::new();
+        let code = r#"
+            LET X = 3
+            LET Y = 0
+            IF X > 5 THEN LET Y = 1 ELSE LET Y = 2
+        "#;
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        assert_eq!(interp.variables.get("Y").unwrap().as_integer().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_gosub_return() {
+        let mut interp = Interpreter::new();
+        let code = "10 LET X = 1\n20 GOSUB 100\n30 LET X = X + 10\n40 END\n100 LET X = X + 5\n110 RETURN";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // X = 1, then 1+5=6, then 6+10=16
+        assert_eq!(interp.variables.get("X").unwrap().as_integer().unwrap(), 16);
+    }
+
+    #[test]
+    fn test_goto() {
+        let mut interp = Interpreter::new();
+        let code = "10 LET X = 1\n20 GOTO 40\n30 LET X = 99\n40 LET X = X + 5\n50 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // Should skip line 30, so X = 1 + 5 = 6
+        assert_eq!(interp.variables.get("X").unwrap().as_integer().unwrap(), 6);
+    }
+
+    #[test]
+    fn test_dim_multidimensional() {
+        let mut interp = Interpreter::new();
+        let code = "DIM A(5, 10)";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert!(interp.execute(ast).is_ok());
+        // Check that dimensions were stored
+        let dims = interp.array_dims.get("A").unwrap();
+        assert_eq!(dims.len(), 2);
+        assert_eq!(dims[0], 6); // 0-5 inclusive
+        assert_eq!(dims[1], 11); // 0-10 inclusive
+    }
+
+    #[test]
+    fn test_while_wend() {
+        let mut interp = Interpreter::new();
+        let code = "10 LET X = 1\n20 WHILE X < 4\n30 LET X = X + 1\n40 WEND\n50 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // Loop should run while X < 4, so X = 1, 2, 3, then exit when X = 4
+        assert_eq!(interp.variables.get("X").unwrap().as_integer().unwrap(), 4);
+    }
+
+    #[test]
+    fn test_data_read() {
+        let mut interp = Interpreter::new();
+        let code = "10 READ A, B, C\n20 DATA 10, 20, 30\n30 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        assert_eq!(interp.variables.get("A").unwrap().as_integer().unwrap(), 10);
+        assert_eq!(interp.variables.get("B").unwrap().as_integer().unwrap(), 20);
+        assert_eq!(interp.variables.get("C").unwrap().as_integer().unwrap(), 30);
+    }
+
+    #[test]
+    fn test_data_restore() {
+        let mut interp = Interpreter::new();
+        let code = "10 READ A\n20 RESTORE\n30 READ B\n40 DATA 99\n50 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // Both should read the same value after RESTORE
+        assert_eq!(interp.variables.get("A").unwrap().as_integer().unwrap(), 99);
+        assert_eq!(interp.variables.get("B").unwrap().as_integer().unwrap(), 99);
+    }
+
+    #[test]
+    fn test_on_goto() {
+        let mut interp = Interpreter::new();
+        let code = "10 LET X = 2\n20 ON X GOTO 100, 200, 300\n30 LET Y = 0\n40 END\n100 LET Y = 1\n110 END\n200 LET Y = 2\n210 END\n300 LET Y = 3\n310 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // X = 2, so should jump to 200 (second option)
+        assert_eq!(interp.variables.get("Y").unwrap().as_integer().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_on_gosub() {
+        let mut interp = Interpreter::new();
+        let code = "10 LET X = 1\n20 ON X GOSUB 100, 200\n30 LET Y = 99\n40 END\n100 LET Y = 10\n110 RETURN\n200 LET Y = 20\n210 RETURN";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.run_stored_program().unwrap();
+        // X = 1, so should call 100, then return and set Y = 99
+        assert_eq!(interp.variables.get("Y").unwrap().as_integer().unwrap(), 99);
     }
 }

@@ -1,7 +1,6 @@
 //! File I/O module for GW-BASIC
 
 use crate::error::{Error, Result};
-use crate::value::Value;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -18,9 +17,9 @@ pub enum FileMode {
 
 /// File handle information
 pub struct FileHandle {
-    file: Option<File>,
-    mode: FileMode,
-    path: PathBuf,
+    _file: Option<File>,
+    _mode: FileMode,
+    _path: PathBuf,
     reader: Option<BufReader<File>>,
     writer: Option<BufWriter<File>>,
 }
@@ -88,9 +87,9 @@ impl FileManager {
         self.handles.insert(
             file_num,
             FileHandle {
-                file: Some(file),
-                mode,
-                path: PathBuf::from(path),
+                _file: Some(file),
+                _mode: mode,
+                _path: PathBuf::from(path),
                 reader,
                 writer,
             },

@@ -10,6 +10,7 @@ pub mod error;
 pub mod value;
 pub mod functions;
 pub mod graphics;
+pub mod graphics_backend;
 pub mod fileio;
 
 pub use error::{Error, Result};

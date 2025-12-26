@@ -261,12 +261,17 @@ pub fn input_fn(n: Value, file_num: Option<Value>) -> Result<Value> {
         // File input - simulated
         Ok(Value::String(" ".repeat(count)))
     } else {
-        // Console input
+        // Console input - try to read from stdin
         use std::io::{self, Read};
         let mut buffer = vec![0u8; count];
-        io::stdin().read_exact(&mut buffer)
-            .map_err(|e| Error::IoError(e.to_string()))?;
-        Ok(Value::String(String::from_utf8_lossy(&buffer).to_string()))
+        match io::stdin().read_exact(&mut buffer) {
+            Ok(_) => Ok(Value::String(String::from_utf8_lossy(&buffer).to_string())),
+            Err(_) => {
+                // Non-interactive mode - return empty/space string
+                // This allows graphics programs to run without hanging
+                Ok(Value::String(" ".repeat(count)))
+            }
+        }
     }
 }
 

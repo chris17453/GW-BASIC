@@ -424,10 +424,7 @@ impl Lexer {
             // I/O
             "INPUT" => TokenType::Input,
             "WRITE" => TokenType::Write,
-            "LINE" => {
-                // Check if followed by INPUT
-                TokenType::Identifier(ident.clone())
-            },
+            "LINE" => TokenType::Line,
             "OPEN" => TokenType::Open,
             "CLOSE" => TokenType::Close,
             "LOAD" => TokenType::Load,

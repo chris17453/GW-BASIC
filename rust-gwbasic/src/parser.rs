@@ -11,12 +11,14 @@ pub enum AstNode {
     Print(Vec<AstNode>),
     Input(Vec<String>),
     Let(String, Box<AstNode>),
-    
+    ArrayAssign(String, Vec<AstNode>, Box<AstNode>),  // name, indices, value
+
     // Statements - Control Flow
     If(Box<AstNode>, Vec<AstNode>, Option<Vec<AstNode>>),
     For(String, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
     Next(String),
-    While(Box<AstNode>, Vec<AstNode>),
+    While(Box<AstNode>),
+    Wend,
     Goto(u32),
     Gosub(u32),
     OnGoto(Box<AstNode>, Vec<u32>),
@@ -228,9 +230,17 @@ impl Parser {
                     // Otherwise, skip empty lines
                     continue;
                 }
+                TokenType::LineNumber(_) => {
+                    // Stop when we hit a new line number
+                    break;
+                }
                 TokenType::Colon => {
                     self.advance();
                     continue;
+                }
+                TokenType::Else => {
+                    // Stop before ELSE, let the caller handle it
+                    break;
                 }
                 _ => {
                     statements.push(self.parse_statement()?);
@@ -253,6 +263,10 @@ impl Parser {
             TokenType::For => self.parse_for(),
             TokenType::Next => self.parse_next(),
             TokenType::While => self.parse_while(),
+            TokenType::Wend => {
+                self.advance();
+                Ok(AstNode::Wend)
+            }
             TokenType::Goto => self.parse_goto(),
             TokenType::Gosub => self.parse_gosub(),
             TokenType::Return => {
@@ -469,6 +483,11 @@ impl Parser {
                 };
                 Ok(AstNode::Color(fg, bg))
             }
+            TokenType::Screen => {
+                self.advance();
+                let mode = self.parse_expression()?;
+                Ok(AstNode::Screen(Box::new(mode)))
+            }
             TokenType::Width => {
                 self.advance();
                 let width = self.parse_expression()?;
@@ -518,7 +537,87 @@ impl Parser {
                 } else {
                     None
                 };
+                // Optional: start angle
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    let _ = self.parse_expression()?;
+                }
+                // Optional: end angle
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    let _ = self.parse_expression()?;
+                }
+                // Optional: aspect ratio
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    let _ = self.parse_expression()?;
+                }
                 Ok(AstNode::Circle(Box::new(x), Box::new(y), Box::new(radius), color))
+            }
+            TokenType::Line => {
+                self.advance();
+                if let TokenType::LeftParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let x1 = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let y1 = self.parse_expression()?;
+                if let TokenType::RightParen = self.current_token().token_type {
+                    self.advance();
+                }
+                // Expect - or Minus token
+                if let TokenType::Minus = self.current_token().token_type {
+                    self.advance();
+                } else {
+                    return Err(Error::SyntaxError("Expected '-' in LINE statement".to_string()));
+                }
+                if let TokenType::LeftParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let x2 = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let y2 = self.parse_expression()?;
+                if let TokenType::RightParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let color = if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    Some(Box::new(self.parse_expression()?))
+                } else {
+                    None
+                };
+                Ok(AstNode::DrawLine(Box::new(x1), Box::new(y1), Box::new(x2), Box::new(y2), color))
+            }
+            TokenType::Paint => {
+                self.advance();
+                if let TokenType::LeftParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let x = self.parse_expression()?;
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                }
+                let y = self.parse_expression()?;
+                if let TokenType::RightParen = self.current_token().token_type {
+                    self.advance();
+                }
+                let paint_color = if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    Some(Box::new(self.parse_expression()?))
+                } else {
+                    None
+                };
+                let border_color = if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                    Some(Box::new(self.parse_expression()?))
+                } else {
+                    None
+                };
+                Ok(AstNode::Paint(Box::new(x), Box::new(y), paint_color, border_color))
             }
             
             // Sound
@@ -539,6 +638,12 @@ impl Parser {
             // System
             TokenType::Randomize => {
                 self.advance();
+                // Check for TIMER keyword
+                if let TokenType::Timer = self.current_token().token_type {
+                    self.advance();
+                    // RANDOMIZE TIMER - use current time as seed
+                    return Ok(AstNode::Randomize(None));
+                }
                 let seed = if matches!(self.current_token().token_type, TokenType::Newline | TokenType::Eof | TokenType::Colon) {
                     None
                 } else {
@@ -605,7 +710,7 @@ impl Parser {
             let mut expressions = Vec::new();
             while !self.is_at_end() {
                 match &self.current_token().token_type {
-                    TokenType::Eof | TokenType::Newline | TokenType::Colon => break,
+                    TokenType::Eof | TokenType::Newline | TokenType::Colon | TokenType::Else => break,
                     TokenType::Semicolon | TokenType::Comma => {
                         self.advance();
                     }
@@ -614,7 +719,7 @@ impl Parser {
                     }
                 }
             }
-            
+
             return Ok(AstNode::PrintFile(Box::new(file_num), expressions));
         }
         
@@ -623,7 +728,7 @@ impl Parser {
 
         while !self.is_at_end() {
             match &self.current_token().token_type {
-                TokenType::Eof | TokenType::Newline | TokenType::Colon => break,
+                TokenType::Eof | TokenType::Newline | TokenType::Colon | TokenType::Else => break,
                 TokenType::Semicolon | TokenType::Comma => {
                     self.advance();
                 }
@@ -646,6 +751,33 @@ impl Parser {
         };
         self.advance();
 
+        // Check for array indexing: A(5) = 42
+        if let TokenType::LeftParen = self.current_token().token_type {
+            self.advance();
+            let mut indices = vec![];
+            loop {
+                indices.push(self.parse_expression()?);
+                if let TokenType::Comma = self.current_token().token_type {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            if let TokenType::RightParen = self.current_token().token_type {
+                self.advance();
+            }
+
+            if let TokenType::Equal = self.current_token().token_type {
+                self.advance();
+            } else {
+                return Err(Error::SyntaxError("Expected '=' in array assignment".to_string()));
+            }
+
+            let expr = self.parse_expression()?;
+            return Ok(AstNode::ArrayAssign(name, indices, Box::new(expr)));
+        }
+
+        // Regular variable assignment
         if let TokenType::Equal = self.current_token().token_type {
             self.advance();
         } else {
@@ -733,9 +865,10 @@ impl Parser {
         self.advance(); // Skip WHILE
 
         let condition = self.parse_expression()?;
-        let statements = self.parse_statements()?;
 
-        Ok(AstNode::While(Box::new(condition), statements))
+        // Like FOR...NEXT, WHILE...WEND works with the interpreter tracking state
+        // and jumping back when WEND is encountered
+        Ok(AstNode::While(Box::new(condition)))
     }
 
     fn parse_goto(&mut self) -> Result<AstNode> {
@@ -793,7 +926,17 @@ impl Parser {
             return Ok(AstNode::InputFile(Box::new(file_num), vars));
         }
 
-        // Regular INPUT
+        // Regular INPUT - check for optional prompt string
+        let mut _prompt = None;
+        if let TokenType::String(s) = &self.current_token().token_type {
+            _prompt = Some(s.clone());
+            self.advance();
+            // Skip semicolon or comma after prompt
+            if matches!(&self.current_token().token_type, TokenType::Semicolon | TokenType::Comma) {
+                self.advance();
+            }
+        }
+
         let mut vars = Vec::new();
         while !self.is_at_end() {
             match &self.current_token().token_type {
@@ -1154,6 +1297,200 @@ mod tests {
                         assert_eq!(*num, 10);
                     }
                     _ => panic!("Expected Line node"),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_dim_statement() {
+        let mut lexer = Lexer::new("DIM A(10)");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Dim(name, dims) => {
+                        assert_eq!(name, "A");
+                        assert_eq!(dims.len(), 1);
+                    }
+                    _ => panic!("Expected Dim node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_assignment() {
+        let mut lexer = Lexer::new("LET A(5) = 42");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::ArrayAssign(name, indices, _) => {
+                        assert_eq!(name, "A");
+                        assert_eq!(indices.len(), 1);
+                    }
+                    _ => panic!("Expected ArrayAssign node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_loop() {
+        let mut lexer = Lexer::new("FOR I = 1 TO 10");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::For(var, _, _, _) => {
+                        assert_eq!(var, "I");
+                    }
+                    _ => panic!("Expected For node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_if_then() {
+        let mut lexer = Lexer::new("IF X > 5 THEN PRINT \"Big\"");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::If(_, then_stmts, else_stmts) => {
+                        assert!(then_stmts.len() > 0);
+                        assert!(else_stmts.is_none());
+                    }
+                    _ => panic!("Expected If node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_if_then_else() {
+        let mut lexer = Lexer::new("IF X > 5 THEN PRINT \"Big\" ELSE PRINT \"Small\"");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::If(_, then_stmts, else_stmts) => {
+                        assert!(then_stmts.len() > 0);
+                        assert!(else_stmts.is_some());
+                    }
+                    _ => panic!("Expected If node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_input_with_prompt() {
+        let mut lexer = Lexer::new("INPUT \"Enter value\"; X");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Input(vars) => {
+                        assert_eq!(vars.len(), 1);
+                        assert_eq!(vars[0], "X");
+                    }
+                    _ => panic!("Expected Input node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_randomize_timer() {
+        let mut lexer = Lexer::new("RANDOMIZE TIMER");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Randomize(_) => {
+                        // Success
+                    }
+                    _ => panic!("Expected Randomize node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_gosub_return() {
+        let mut lexer = Lexer::new("GOSUB 100");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Gosub(line) => {
+                        assert_eq!(*line, 100);
+                    }
+                    _ => panic!("Expected Gosub node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_goto() {
+        let mut lexer = Lexer::new("GOTO 200");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Goto(line) => {
+                        assert_eq!(*line, 200);
+                    }
+                    _ => panic!("Expected Goto node, got {:?}", lines[0]),
                 }
             }
             _ => panic!("Expected Program node"),

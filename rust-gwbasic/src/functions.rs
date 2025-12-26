@@ -487,15 +487,12 @@ pub fn ioctl_string_fn(filenum: Value) -> Result<Value> {
 }
 
 /// Machine language function call
-pub fn usr_fn(index: Option<Value>, arg: Value) -> Result<Value> {
-    let _idx = if let Some(i) = index {
-        i.as_integer()?
-    } else {
-        0
-    };
-    let _argument = arg.as_double()?;
+pub fn usr_fn(_index: Option<Value>, arg: Value) -> Result<Value> {
+    // Validate the argument can be converted to double (required by GW-BASIC)
+    let _ = arg.as_double()?;
     // USR function call (simulated - machine language calls not supported)
     // In real GW-BASIC, this would call a user-defined machine language routine
+    // at the address specified by index and pass the argument
     Ok(Value::Integer(0))
 }
 

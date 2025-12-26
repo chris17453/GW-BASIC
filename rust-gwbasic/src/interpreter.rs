@@ -1390,7 +1390,11 @@ impl Interpreter {
                 }
                 // Extract index from function name (USR0-USR9)
                 let index = if name.len() > 3 {
-                    Some(Value::Integer(name.chars().last().unwrap().to_digit(10).unwrap() as i32))
+                    // Safe: We've already matched against USR0-USR9, so last char is a digit
+                    match name.chars().last().and_then(|c| c.to_digit(10)) {
+                        Some(digit) => Some(Value::Integer(digit as i32)),
+                        None => None,
+                    }
                 } else {
                     None
                 };

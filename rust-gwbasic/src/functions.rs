@@ -488,7 +488,8 @@ pub fn ioctl_string_fn(filenum: Value) -> Result<Value> {
 
 /// Machine language function call
 pub fn usr_fn(_index: Option<Value>, arg: Value) -> Result<Value> {
-    // Validate the argument can be converted to double (required by GW-BASIC)
+    // Validate the argument can be converted to double (required by GW-BASIC spec)
+    // The value is discarded since we only simulate the call and return 0
     let _ = arg.as_double()?;
     // USR function call (simulated - machine language calls not supported)
     // In real GW-BASIC, this would call a user-defined machine language routine

@@ -1382,6 +1382,21 @@ impl Interpreter {
                 strig_fn(eval_args[0].clone())
             }
             
+            // Machine language functions
+            "USR" | "USR0" | "USR1" | "USR2" | "USR3" | "USR4" | 
+            "USR5" | "USR6" | "USR7" | "USR8" | "USR9" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("USR requires 1 argument".to_string()));
+                }
+                // Extract index from function name (USR0-USR9)
+                let index = if name.len() > 3 {
+                    Some(Value::Integer(name.chars().last().unwrap().to_digit(10).unwrap() as i32))
+                } else {
+                    None
+                };
+                usr_fn(index, eval_args[0].clone())
+            }
+            
             _ => Err(Error::UndefinedError(format!("Function {} not defined", name))),
         }
     }

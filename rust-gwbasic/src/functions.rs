@@ -486,6 +486,17 @@ pub fn ioctl_string_fn(filenum: Value) -> Result<Value> {
     Ok(Value::String(String::new()))
 }
 
+/// Machine language function call
+pub fn usr_fn(_index: Option<Value>, arg: Value) -> Result<Value> {
+    // Validate the argument can be converted to double (required by GW-BASIC spec)
+    // The value is discarded since we only simulate the call and return 0
+    let _ = arg.as_double()?;
+    // USR function call (simulated - machine language calls not supported)
+    // In real GW-BASIC, this would call a user-defined machine language routine
+    // at the address specified by index and pass the argument
+    Ok(Value::Integer(0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,5 +527,13 @@ mod tests {
     fn test_case_functions() {
         assert_eq!(lcase_fn(Value::String("HELLO".to_string())).unwrap().as_string(), "hello");
         assert_eq!(ucase_fn(Value::String("hello".to_string())).unwrap().as_string(), "HELLO");
+    }
+    
+    #[test]
+    fn test_usr_function() {
+        // Test USR without index
+        assert_eq!(usr_fn(None, Value::Integer(100)).unwrap().as_integer().unwrap(), 0);
+        // Test USR with index
+        assert_eq!(usr_fn(Some(Value::Integer(5)), Value::Double(3.14)).unwrap().as_integer().unwrap(), 0);
     }
 }

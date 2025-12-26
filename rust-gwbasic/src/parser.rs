@@ -19,6 +19,8 @@ pub enum AstNode {
     While(Box<AstNode>, Vec<AstNode>),
     Goto(u32),
     Gosub(u32),
+    OnGoto(Box<AstNode>, Vec<u32>),
+    OnGosub(Box<AstNode>, Vec<u32>),
     Return,
     End,
     Stop,
@@ -35,6 +37,7 @@ pub enum AstNode {
     Locate(Box<AstNode>, Box<AstNode>),
     Color(Option<Box<AstNode>>, Option<Box<AstNode>>),
     Screen(Box<AstNode>),
+    Width(Box<AstNode>),
     Pset(Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
     DrawLine(Box<AstNode>, Box<AstNode>, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
     Circle(Box<AstNode>, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
@@ -50,6 +53,8 @@ pub enum AstNode {
     // Statements - System
     Randomize(Option<Box<AstNode>>),
     Swap(String, String),
+    Clear,
+    Erase(Vec<String>),
     
     // Expressions
     Literal(Value),
@@ -195,6 +200,43 @@ impl Parser {
                 self.advance();
                 Ok(AstNode::Stop)
             }
+            TokenType::On => {
+                self.advance();
+                let expr = self.parse_expression()?;
+                
+                // Check for GOTO or GOSUB
+                let is_goto = if let TokenType::Goto = self.current_token().token_type {
+                    self.advance();
+                    true
+                } else if let TokenType::Gosub = self.current_token().token_type {
+                    self.advance();
+                    false
+                } else {
+                    return Err(Error::SyntaxError("Expected GOTO or GOSUB after ON".to_string()));
+                };
+                
+                // Parse line numbers
+                let mut lines = vec![];
+                loop {
+                    if let TokenType::Integer(n) = self.current_token().token_type {
+                        lines.push(n as u32);
+                        self.advance();
+                        if let TokenType::Comma = self.current_token().token_type {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                
+                if is_goto {
+                    Ok(AstNode::OnGoto(Box::new(expr), lines))
+                } else {
+                    Ok(AstNode::OnGosub(Box::new(expr), lines))
+                }
+            }
             
             // Data
             TokenType::Dim => self.parse_dim(),
@@ -280,6 +322,11 @@ impl Parser {
                     None
                 };
                 Ok(AstNode::Color(fg, bg))
+            }
+            TokenType::Width => {
+                self.advance();
+                let width = self.parse_expression()?;
+                Ok(AstNode::Width(Box::new(width)))
             }
             TokenType::Pset => {
                 self.advance();

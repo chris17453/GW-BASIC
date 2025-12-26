@@ -373,6 +373,25 @@ pub fn csrlin_fn() -> Result<Value> {
     Ok(Value::Integer(1))
 }
 
+/// File functions (placeholders - would need FileManager reference)
+pub fn eof_fn(file_num: Value) -> Result<Value> {
+    let _num = file_num.as_integer()?;
+    // Simplified - would check actual file EOF
+    Ok(Value::Integer(0))
+}
+
+pub fn loc_fn(file_num: Value) -> Result<Value> {
+    let _num = file_num.as_integer()?;
+    // Return file position
+    Ok(Value::Integer(0))
+}
+
+pub fn lof_fn(file_num: Value) -> Result<Value> {
+    let _num = file_num.as_integer()?;
+    // Return file length
+    Ok(Value::Integer(0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

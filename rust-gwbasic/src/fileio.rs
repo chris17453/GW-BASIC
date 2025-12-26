@@ -176,6 +176,30 @@ impl FileManager {
             )))
         }
     }
+
+    pub fn loc(&self, file_num: i32) -> Result<i32> {
+        if let Some(_handle) = self.handles.get(&file_num) {
+            // Return current position (simulated)
+            Ok(0)
+        } else {
+            Err(Error::RuntimeError(format!(
+                "File #{} is not open",
+                file_num
+            )))
+        }
+    }
+
+    pub fn lof(&self, file_num: i32) -> Result<i32> {
+        if let Some(_handle) = self.handles.get(&file_num) {
+            // Return file length (simulated)
+            Ok(0)
+        } else {
+            Err(Error::RuntimeError(format!(
+                "File #{} is not open",
+                file_num
+            )))
+        }
+    }
 }
 
 impl Default for FileManager {

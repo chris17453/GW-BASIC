@@ -109,6 +109,22 @@ impl Interpreter {
             }
             AstNode::Goto(line) => self.execute_goto(line),
             AstNode::Gosub(line) => self.execute_gosub(line),
+            AstNode::OnGoto(expr, lines) => {
+                let index = self.evaluate_expression(&expr)?.as_integer()? as usize;
+                if index > 0 && index <= lines.len() {
+                    self.execute_goto(lines[index - 1])
+                } else {
+                    Ok(()) // Out of range - do nothing
+                }
+            }
+            AstNode::OnGosub(expr, lines) => {
+                let index = self.evaluate_expression(&expr)?.as_integer()? as usize;
+                if index > 0 && index <= lines.len() {
+                    self.execute_gosub(lines[index - 1])
+                } else {
+                    Ok(()) // Out of range - do nothing
+                }
+            }
             AstNode::Return => self.execute_return(),
             AstNode::End => Err(Error::ProgramEnd),
             AstNode::Stop => Err(Error::ProgramEnd),
@@ -895,6 +911,24 @@ impl Interpreter {
                     return Err(Error::RuntimeError("CSRLIN requires 0 arguments".to_string()));
                 }
                 csrlin_fn()
+            }
+            "EOF" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("EOF requires 1 argument".to_string()));
+                }
+                eof_fn(eval_args[0].clone())
+            }
+            "LOC" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("LOC requires 1 argument".to_string()));
+                }
+                loc_fn(eval_args[0].clone())
+            }
+            "LOF" => {
+                if eval_args.len() != 1 {
+                    return Err(Error::RuntimeError("LOF requires 1 argument".to_string()));
+                }
+                lof_fn(eval_args[0].clone())
             }
             
             _ => Err(Error::UndefinedError(format!("Function {} not defined", name))),

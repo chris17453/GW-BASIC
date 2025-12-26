@@ -530,4 +530,12 @@ mod tests {
         assert_eq!(lcase_fn(Value::String("HELLO".to_string())).unwrap().as_string(), "hello");
         assert_eq!(ucase_fn(Value::String("hello".to_string())).unwrap().as_string(), "HELLO");
     }
+    
+    #[test]
+    fn test_usr_function() {
+        // Test USR without index
+        assert_eq!(usr_fn(None, Value::Integer(100)).unwrap().as_integer().unwrap(), 0);
+        // Test USR with index
+        assert_eq!(usr_fn(Some(Value::Integer(5)), Value::Double(3.14)).unwrap().as_integer().unwrap(), 0);
+    }
 }

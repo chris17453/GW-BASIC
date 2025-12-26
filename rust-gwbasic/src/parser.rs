@@ -38,27 +38,60 @@ pub enum AstNode {
     Color(Option<Box<AstNode>>, Option<Box<AstNode>>),
     Screen(Box<AstNode>),
     Width(Box<AstNode>),
+    View(Option<Box<AstNode>>, Option<Box<AstNode>>, Option<Box<AstNode>>, Option<Box<AstNode>>), // x1, y1, x2, y2
+    Window(Option<Box<AstNode>>, Option<Box<AstNode>>, Option<Box<AstNode>>, Option<Box<AstNode>>), // x1, y1, x2, y2
     Pset(Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
+    Preset(Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
     DrawLine(Box<AstNode>, Box<AstNode>, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
     Circle(Box<AstNode>, Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>),
+    Paint(Box<AstNode>, Box<AstNode>, Option<Box<AstNode>>, Option<Box<AstNode>>), // x, y, paint_color, border_color
+    Draw(String),                            // draw string
+    GraphicsGet(Box<AstNode>, Box<AstNode>, Box<AstNode>, Box<AstNode>, String), // x1, y1, x2, y2, array
+    GraphicsPut(Box<AstNode>, Box<AstNode>, String, Option<String>), // x, y, array, action
+    Palette(Box<AstNode>, Box<AstNode>),    // attribute, color
     
     // Statements - Sound
     Beep,
     Sound(Box<AstNode>, Box<AstNode>),
+    Play(String),                            // music string
     
     // Statements - File I/O
     Open(String, Box<AstNode>, String),  // filename, file_number, mode
     Close(Vec<i32>),
+    Reset,                                   // close all files
     PrintFile(Box<AstNode>, Vec<AstNode>),  // file_number, expressions
     InputFile(Box<AstNode>, Vec<String>),   // file_number, variables
     WriteFile(Box<AstNode>, Vec<AstNode>),  // file_number, expressions
     LineInput(Vec<String>),                  // variables
     LineInputFile(Box<AstNode>, String),    // file_number, variable
+    Kill(String),                            // filename
+    Name(String, String),                    // old_name, new_name
+    Files(Option<String>),                   // optional filespec
+    Field(Box<AstNode>, Vec<(u32, String)>), // file_number, field_specs (width, var)
+    Lset(String, Box<AstNode>),             // variable, expression
+    Rset(String, Box<AstNode>),             // variable, expression
+    FileGet(Box<AstNode>, Option<Box<AstNode>>), // file_number, optional record_number
+    FilePut(Box<AstNode>, Option<Box<AstNode>>), // file_number, optional record_number
+    PrintUsing(String, Vec<AstNode>),        // format string, expressions
+    Write(Vec<AstNode>),                     // expressions to screen
     
     // Statements - Program Control
     List(Option<u32>, Option<u32>),         // start_line, end_line
     New,
     Run(Option<u32>),                       // optional start line
+    Load(String),                           // filename
+    Save(String),                           // filename
+    Merge(String),                          // filename
+    Chain(String, Option<u32>),             // filename, optional line
+    Cont,                                   // continue after STOP
+    
+    // Statements - Program Editing
+    Auto(Option<u32>, Option<u32>),         // start, increment
+    Delete(u32, Option<u32>),               // start, optional end
+    Renum(Option<u32>, Option<u32>, Option<u32>), // new_start, old_start, increment
+    Edit(u32),                              // line number
+    Tron,                                   // trace on
+    Troff,                                  // trace off
     
     // Statements - Error Handling
     OnError(u32),                           // line number for error handler
@@ -74,6 +107,21 @@ pub enum AstNode {
     Poke(Box<AstNode>, Box<AstNode>),      // address, value
     Wait(Box<AstNode>, Box<AstNode>),      // port, mask
     DefFn(String, Vec<String>, Box<AstNode>), // name, params, expression
+    DefStr(String, String),                 // start_letter, end_letter
+    DefInt(String, String),                 // start_letter, end_letter
+    DefSng(String, String),                 // start_letter, end_letter
+    DefDbl(String, String),                 // start_letter, end_letter
+    OptionBase(u8),                         // 0 or 1
+    Key(Box<AstNode>, String),              // key_number, string
+    KeyOn,
+    KeyOff,
+    KeyList,
+    OnKey(Box<AstNode>, u32),               // key_number, line_number
+    DefSeg(Option<Box<AstNode>>),           // optional segment
+    Bload(String, Option<Box<AstNode>>),    // filename, optional offset
+    Bsave(String, Box<AstNode>, Box<AstNode>), // filename, offset, length
+    Call(Box<AstNode>, Vec<AstNode>),       // address, parameters
+    Usr(Box<AstNode>),                      // address
     
     // Expressions
     Literal(Value),

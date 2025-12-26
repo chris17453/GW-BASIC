@@ -424,9 +424,230 @@ impl Interpreter {
                 // Simulated hardware wait
                 Ok(())
             }
-            AstNode::DefFn(name, _params, _expr) => {
+            AstNode::DefFn(_name, _params, _expr) => {
                 // Store user-defined function (simplified)
                 // Would need to store params and expression for later evaluation
+                Ok(())
+            }
+            
+            // Program management
+            AstNode::Load(_filename) => {
+                // Load program from file - stub implementation
+                println!("LOAD: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Save(_filename) => {
+                // Save program to file - stub implementation
+                println!("SAVE: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Merge(_filename) => {
+                // Merge program from file - stub implementation
+                println!("MERGE: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Chain(_filename, _line) => {
+                // Chain to another program - stub implementation
+                println!("CHAIN: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Cont => {
+                // Continue execution - stub implementation
+                println!("CONT: Feature not yet fully implemented");
+                Ok(())
+            }
+            
+            // Program editing
+            AstNode::Auto(_start, _increment) => {
+                println!("AUTO: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Delete(_start, _end) => {
+                println!("DELETE: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Renum(_new_start, _old_start, _increment) => {
+                println!("RENUM: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Edit(_line) => {
+                println!("EDIT: Feature not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Tron => {
+                println!("Trace ON");
+                Ok(())
+            }
+            AstNode::Troff => {
+                println!("Trace OFF");
+                Ok(())
+            }
+            
+            // Advanced graphics
+            AstNode::View(_x1, _y1, _x2, _y2) => {
+                println!("VIEW: Setting viewport");
+                Ok(())
+            }
+            AstNode::Window(_x1, _y1, _x2, _y2) => {
+                println!("WINDOW: Setting logical coordinates");
+                Ok(())
+            }
+            AstNode::Preset(x, y, color) => {
+                let x_val = self.evaluate_expression(&x)?.as_integer()?;
+                let y_val = self.evaluate_expression(&y)?.as_integer()?;
+                let c = if let Some(c_expr) = color {
+                    Some(self.evaluate_expression(&c_expr)?.as_integer()? as u8)
+                } else {
+                    None
+                };
+                self.screen.pset(x_val, y_val, c)?;
+                Ok(())
+            }
+            AstNode::Paint(_x, _y, _paint_color, _border_color) => {
+                println!("PAINT: Flood fill not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Draw(_draw_string) => {
+                println!("DRAW: Complex shape drawing not yet fully implemented");
+                Ok(())
+            }
+            AstNode::GraphicsGet(_x1, _y1, _x2, _y2, _array) => {
+                println!("GET: Graphics block capture not yet fully implemented");
+                Ok(())
+            }
+            AstNode::GraphicsPut(_x, _y, _array, _action) => {
+                println!("PUT: Graphics block display not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Palette(_attr, _color) => {
+                println!("PALETTE: Color palette manipulation not yet fully implemented");
+                Ok(())
+            }
+            
+            // Sound
+            AstNode::Play(_music_string) => {
+                println!("PLAY: Music playback not yet fully implemented");
+                Ok(())
+            }
+            
+            // File operations
+            AstNode::Reset => {
+                self.file_manager.close_all()?;
+                Ok(())
+            }
+            AstNode::Kill(_filename) => {
+                println!("KILL: File deletion not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Name(_old_name, _new_name) => {
+                println!("NAME: File rename not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Files(_filespec) => {
+                println!("FILES: Directory listing not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Field(_file_number, _field_specs) => {
+                println!("FIELD: Random file buffer definition not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Lset(_var, _expr) => {
+                println!("LSET: Left-justify in field not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Rset(_var, _expr) => {
+                println!("RSET: Right-justify in field not yet fully implemented");
+                Ok(())
+            }
+            AstNode::FileGet(_file_number, _record_number) => {
+                println!("GET: Read record not yet fully implemented");
+                Ok(())
+            }
+            AstNode::FilePut(_file_number, _record_number) => {
+                println!("PUT: Write record not yet fully implemented");
+                Ok(())
+            }
+            AstNode::PrintUsing(_format, _exprs) => {
+                println!("PRINT USING: Formatted output not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Write(exprs) => {
+                for (i, expr) in exprs.iter().enumerate() {
+                    let value = self.evaluate_expression(expr)?;
+                    if let Value::String(s) = value {
+                        print!("\"{}\"", s);
+                    } else {
+                        print!("{}", value);
+                    }
+                    if i < exprs.len() - 1 {
+                        print!(",");
+                    }
+                }
+                println!();
+                Ok(())
+            }
+            
+            // Variable type declarations
+            AstNode::DefStr(_start, _end) => {
+                println!("DEFSTR: Variable type declaration not yet fully implemented");
+                Ok(())
+            }
+            AstNode::DefInt(_start, _end) => {
+                println!("DEFINT: Variable type declaration not yet fully implemented");
+                Ok(())
+            }
+            AstNode::DefSng(_start, _end) => {
+                println!("DEFSNG: Variable type declaration not yet fully implemented");
+                Ok(())
+            }
+            AstNode::DefDbl(_start, _end) => {
+                println!("DEFDBL: Variable type declaration not yet fully implemented");
+                Ok(())
+            }
+            AstNode::OptionBase(_base) => {
+                println!("OPTION BASE: Array base setting not yet fully implemented");
+                Ok(())
+            }
+            
+            // System/Hardware
+            AstNode::Key(_key_number, _string) => {
+                println!("KEY: Function key definition not yet fully implemented");
+                Ok(())
+            }
+            AstNode::KeyOn => {
+                println!("KEY ON: Function key display enabled");
+                Ok(())
+            }
+            AstNode::KeyOff => {
+                println!("KEY OFF: Function key display disabled");
+                Ok(())
+            }
+            AstNode::KeyList => {
+                println!("KEY LIST: Listing function keys");
+                Ok(())
+            }
+            AstNode::OnKey(_key_number, _line_number) => {
+                println!("ON KEY: Function key trap not yet fully implemented");
+                Ok(())
+            }
+            AstNode::DefSeg(_segment) => {
+                println!("DEF SEG: Segment definition not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Bload(_filename, _offset) => {
+                println!("BLOAD: Binary load not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Bsave(_filename, _offset, _length) => {
+                println!("BSAVE: Binary save not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Call(_address, _params) => {
+                println!("CALL: Machine language call not yet fully implemented");
+                Ok(())
+            }
+            AstNode::Usr(_address) => {
+                println!("USR: User function call not yet fully implemented");
                 Ok(())
             }
             

@@ -258,7 +258,11 @@ impl Interpreter {
                 Ok(())
             }
             AstNode::Line(num, statements) => {
-                self.lines.insert(num, statements);
+                if statements.is_empty() {
+                    self.lines.remove(&num);
+                } else {
+                    self.lines.insert(num, statements);
+                }
                 Ok(())
             }
             
@@ -656,8 +660,9 @@ impl Interpreter {
                 println!("AUTO: Feature not yet fully implemented");
                 Ok(())
             }
-            AstNode::Delete(_start, _end) => {
-                println!("DELETE: Feature not yet fully implemented");
+            AstNode::Delete(start, end) => {
+                let end_line = end.unwrap_or(start);
+                self.lines.retain(|line, _| *line < start || *line > end_line);
                 Ok(())
             }
             AstNode::Renum(_new_start, _old_start, _increment) => {

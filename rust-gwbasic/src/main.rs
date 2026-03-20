@@ -3,6 +3,9 @@ use std::io::{self, Write};
 use std::fs;
 use std::env;
 use std::process::Command;
+use rustyline::history::DefaultHistory;
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
 
 fn main() {
     maybe_reexec_with_x11();
@@ -53,6 +56,10 @@ fn main() {
     // Otherwise, start REPL
     println!("GW-BASIC (Rust) interpreter v{}", rust_gwbasic::VERSION);
     println!("Type BASIC statements or 'EXIT' to quit");
+    println!("Tip: Up/Down arrow recalls command history.");
+    println!("Line editing: re-enter a line number to replace it (e.g., `100 PRINT \"HI\"`).");
+    println!("Delete a line: enter just the line number (e.g., `100`).");
+    println!("Use LIST to view stored program lines.");
     println!();
 
     let display_available = has_display();
@@ -72,15 +79,43 @@ fn main() {
         Interpreter::new()
     };
 
-    loop {
-        print!("> ");
-        io::stdout().flush().unwrap();
+    let mut rl = Editor::<(), DefaultHistory>::new().ok();
 
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() {
-            eprintln!("Error reading input");
-            continue;
-        }
+    loop {
+        let line_result = if let Some(editor) = rl.as_mut() {
+            editor.readline("> ")
+        } else {
+            print!("> ");
+            io::stdout().flush().ok();
+            let mut input = String::new();
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => Ok(input),
+                Err(_) => Err(ReadlineError::Io(io::Error::new(
+                    io::ErrorKind::Other,
+                    "stdin read failed",
+                ))),
+            }
+        };
+
+        let input = match line_result {
+            Ok(line) => {
+                if let Some(editor) = rl.as_mut() {
+                    if !line.trim().is_empty() {
+                        editor.add_history_entry(line.as_str()).ok();
+                    }
+                }
+                line
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("^C");
+                continue;
+            }
+            Err(ReadlineError::Eof) => break,
+            Err(e) => {
+                eprintln!("Error reading input: {}", e);
+                continue;
+            }
+        };
 
         let input = input.trim();
         if input.is_empty() {
@@ -134,6 +169,12 @@ fn print_usage() {
     println!("  rust-gwbasic program.bas        Run program (GUI auto-detected if display exists)");
     println!("  rust-gwbasic --gui program.bas  Run program with GUI window");
     println!("  rust-gwbasic -i 32 program.bas  Provide INPUT value from CLI");
+    println!();
+    println!("REPL TIPS:");
+    println!("  Up/Down arrows navigate command history");
+    println!("  Enter a numbered line again to replace it");
+    println!("  Enter only a line number to delete that line");
+    println!("  Use LIST to inspect program text");
 }
 
 fn run_file(filename: &str, use_gui: bool, input_values: &[String]) {

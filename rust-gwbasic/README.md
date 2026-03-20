@@ -72,6 +72,25 @@ Hello, World!
 > EXIT
 ```
 
+REPL editing behavior:
+
+- Use Up/Down arrows for command history.
+- Enter a numbered line again to replace it:
+
+```basic
+> 100 PRINT "OLD"
+> 100 PRINT "NEW"
+```
+
+- Enter only the line number to delete that line:
+
+```basic
+> 100
+```
+
+- Use `LIST` to display the currently stored program.
+- Use `DELETE 100` or `DELETE 100-200` to remove ranges.
+
 ### As a Library
 
 Add to your `Cargo.toml`:
@@ -144,7 +163,7 @@ The crate is organized into several modules:
 - Array support (DIM with full implementation)
 - Sound support (BEEP, SOUND, PLAY)
 - Better error messages with line numbers
-- Program editing commands (LIST, RENUM, DELETE)
+- RENUM implementation
 
 ## License
 

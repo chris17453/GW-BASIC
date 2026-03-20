@@ -317,6 +317,28 @@ impl Parser {
                 };
                 Ok(AstNode::Run(start_line))
             }
+            TokenType::Delete => {
+                self.advance();
+                let start = match self.current_token().token_type {
+                    TokenType::Integer(n) => {
+                        self.advance();
+                        n as u32
+                    }
+                    _ => return Err(Error::SyntaxError("Expected line number after DELETE".to_string())),
+                };
+                let end = if let TokenType::Minus = self.current_token().token_type {
+                    self.advance();
+                    if let TokenType::Integer(n) = self.current_token().token_type {
+                        self.advance();
+                        Some(n as u32)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                Ok(AstNode::Delete(start, end))
+            }
             TokenType::Load => self.parse_load(),
             TokenType::Save => self.parse_save(),
             TokenType::Merge => self.parse_merge(),

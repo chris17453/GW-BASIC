@@ -40,7 +40,7 @@ pub struct WindowBackend {
 
 impl WindowBackend {
     pub fn new(width: usize, height: usize) -> Result<Self> {
-        Self::new_with_scale(width, height, 2)
+        Self::new_with_scale(width, height, 1)
     }
 
     pub fn new_with_scale(width: usize, height: usize, scale: usize) -> Result<Self> {
@@ -188,8 +188,8 @@ impl GraphicsBackend for WindowBackend {
     }
 
     fn should_close(&self) -> bool {
-        // Close if window X button clicked or any key is pressed
-        !self.window.is_open() || !self.window.get_keys().is_empty()
+        // Close only when the window is explicitly closed by the user.
+        !self.window.is_open()
     }
 
     fn update(&mut self) -> Result<()> {

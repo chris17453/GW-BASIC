@@ -7,6 +7,7 @@ use crate::graphics::Screen;
 use crate::graphics_backend::WindowBackend;
 use crate::fileio::{FileManager, FileMode};
 use std::collections::HashMap;
+use std::fs;
 use std::io::{self, Write};
 
 /// Graphics mode selection
@@ -54,6 +55,10 @@ pub struct Interpreter {
     /// DATA storage
     data_items: Vec<Value>,
     data_pointer: usize,
+
+    /// Queued INPUT values for non-interactive execution (CLI-provided)
+    input_queue: Vec<String>,
+    input_queue_pos: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +92,8 @@ impl Interpreter {
             file_manager: FileManager::new(),
             data_items: Vec::new(),
             data_pointer: 0,
+            input_queue: Vec::new(),
+            input_queue_pos: 0,
         }
     }
 
@@ -109,7 +116,15 @@ impl Interpreter {
             file_manager: FileManager::new(),
             data_items: Vec::new(),
             data_pointer: 0,
+            input_queue: Vec::new(),
+            input_queue_pos: 0,
         })
+    }
+
+    /// Set queued INPUT values consumed by INPUT statements in order.
+    pub fn set_input_queue(&mut self, values: Vec<String>) {
+        self.input_queue = values;
+        self.input_queue_pos = 0;
     }
 
     /// Execute a program AST
@@ -155,10 +170,18 @@ impl Interpreter {
             self.data_items.push(val);
         }
 
-        // Start at first line
-        self.current_line = Some(line_nums[0]);
+        // Start at requested line if already set (e.g., RUN 200), otherwise first line.
+        let start_line = self.current_line.and_then(|line| {
+            if self.lines.contains_key(&line) {
+                Some(line)
+            } else {
+                None
+            }
+        });
+        self.current_line = Some(start_line.unwrap_or(line_nums[0]));
 
         // Execute line by line
+        let mut gui_update_counter: usize = 0;
         while let Some(current) = self.current_line {
             // Get statements for current line
             let statements = match self.lines.get(&current) {
@@ -177,15 +200,34 @@ impl Interpreter {
                         // END statement reached - display graphics before exiting
                         self.screen.display();
 
-                        // If using GUI window, keep it open until user closes
-                        while !self.screen.should_close() {
-                            self.screen.update()?;
-                            std::thread::sleep(std::time::Duration::from_millis(16));
+                        // If using GUI window, keep it open briefly for inspection,
+                        // then exit automatically if not closed.
+                        if matches!(self.graphics_mode, GraphicsMode::Gui) {
+                            let started = std::time::Instant::now();
+                            while !self.screen.should_close() {
+                                self.screen.update()?;
+                                std::thread::sleep(std::time::Duration::from_millis(16));
+                                if started.elapsed() > std::time::Duration::from_secs(8) {
+                                    break;
+                                }
+                            }
                         }
 
                         return Ok(());
                     }
                     Err(e) => return Err(e),
+                }
+            }
+
+            // In GUI mode, periodically refresh so drawing is visible while running.
+            if matches!(self.graphics_mode, GraphicsMode::Gui) {
+                gui_update_counter += 1;
+                if gui_update_counter >= 1000 {
+                    self.screen.update()?;
+                    gui_update_counter = 0;
+                    if self.screen.should_close() {
+                        return Ok(());
+                    }
                 }
             }
 
@@ -481,11 +523,12 @@ impl Interpreter {
                     }
                     
                     if let Some(statements) = self.lines.get(&line_num) {
-                        print!("{} ", line_num);
-                        for stmt in statements {
-                            print!("{:?} ", stmt);
-                        }
-                        println!();
+                        let rendered = statements
+                            .iter()
+                            .map(Self::format_statement)
+                            .collect::<Vec<_>>()
+                            .join(" : ");
+                        println!("{} {}", line_num, rendered);
                     }
                 }
                 Ok(())
@@ -505,9 +548,9 @@ impl Interpreter {
                     nums.sort();
                     nums.first().copied()
                 });
-                
-                if let Some(line) = self.current_line {
-                    self.execute_goto(line)
+
+                if self.current_line.is_some() {
+                    self.run_stored_program()
                 } else {
                     Ok(())
                 }
@@ -584,24 +627,22 @@ impl Interpreter {
             }
             
             // Program management
-            AstNode::Load(_filename) => {
-                // Load program from file - stub implementation
-                println!("LOAD: Feature not yet fully implemented");
-                Ok(())
+            AstNode::Load(filename) => {
+                self.load_program_from_file(&filename, false)
             }
-            AstNode::Save(_filename) => {
-                // Save program to file - stub implementation
-                println!("SAVE: Feature not yet fully implemented");
-                Ok(())
+            AstNode::Save(filename) => {
+                self.save_program_to_file(&filename)
             }
-            AstNode::Merge(_filename) => {
-                // Merge program from file - stub implementation
-                println!("MERGE: Feature not yet fully implemented");
-                Ok(())
+            AstNode::Merge(filename) => {
+                self.load_program_from_file(&filename, true)
             }
-            AstNode::Chain(_filename, _line) => {
-                // Chain to another program - stub implementation
-                println!("CHAIN: Feature not yet fully implemented");
+            AstNode::Chain(filename, start_line) => {
+                self.load_program_from_file(&filename, false)?;
+                self.current_line = start_line.or_else(|| {
+                    let mut nums: Vec<u32> = self.lines.keys().copied().collect();
+                    nums.sort();
+                    nums.first().copied()
+                });
                 Ok(())
             }
             AstNode::Cont => {
@@ -1066,6 +1107,21 @@ impl Interpreter {
 
     fn execute_input(&mut self, vars: Vec<String>) -> Result<()> {
         for var in vars {
+            if self.input_queue_pos < self.input_queue.len() {
+                let queued = self.input_queue[self.input_queue_pos].trim().to_string();
+                self.input_queue_pos += 1;
+
+                let value = if let Ok(i) = queued.parse::<i32>() {
+                    Value::Integer(i)
+                } else if let Ok(f) = queued.parse::<f64>() {
+                    Value::Double(f)
+                } else {
+                    Value::String(queued)
+                };
+                self.variables.insert(var, value);
+                continue;
+            }
+
             print!("? ");
             io::stdout().flush().unwrap();
 
@@ -1109,6 +1165,403 @@ impl Interpreter {
         }
 
         Ok(())
+    }
+
+    fn load_program_from_file(&mut self, filename: &str, merge: bool) -> Result<()> {
+        let content = fs::read_to_string(filename)
+            .map_err(|e| Error::IoError(format!("Cannot read '{}': {}", filename, e)))?;
+
+        let mut lexer = crate::lexer::Lexer::new(&content);
+        let tokens = lexer.tokenize()?;
+        let mut parser = crate::parser::Parser::new(tokens);
+        let ast = parser.parse()?;
+
+        let loaded_lines = match ast {
+            AstNode::Program(nodes) => {
+                let mut line_map = HashMap::new();
+                for node in nodes {
+                    if let AstNode::Line(num, statements) = node {
+                        line_map.insert(num, statements);
+                    }
+                }
+                line_map
+            }
+            AstNode::Line(num, statements) => {
+                let mut line_map = HashMap::new();
+                line_map.insert(num, statements);
+                line_map
+            }
+            _ => {
+                return Err(Error::RuntimeError(format!(
+                    "File '{}' does not contain a line-numbered BASIC program",
+                    filename
+                )))
+            }
+        };
+
+        if !merge {
+            self.lines.clear();
+            self.variables.clear();
+            self.arrays.clear();
+            self.array_dims.clear();
+            self.call_stack.clear();
+            self.for_stack.clear();
+            self.while_stack.clear();
+            self.data_items.clear();
+            self.data_pointer = 0;
+            self.current_line = None;
+        }
+
+        for (line_num, statements) in loaded_lines {
+            self.lines.insert(line_num, statements);
+        }
+
+        Ok(())
+    }
+
+    fn save_program_to_file(&self, filename: &str) -> Result<()> {
+        let mut line_nums: Vec<u32> = self.lines.keys().copied().collect();
+        line_nums.sort();
+
+        let mut output = String::new();
+        for line in line_nums {
+            if let Some(statements) = self.lines.get(&line) {
+                output.push_str(&format!("{} ", line));
+                let rendered = statements
+                    .iter()
+                    .map(Self::format_statement)
+                    .collect::<Vec<_>>()
+                    .join(" : ");
+                output.push_str(&rendered);
+                output.push('\n');
+            }
+        }
+
+        fs::write(filename, output)
+            .map_err(|e| Error::IoError(format!("Cannot write '{}': {}", filename, e)))?;
+        Ok(())
+    }
+
+    fn format_statement(node: &AstNode) -> String {
+        match node {
+            AstNode::Print(exprs) => {
+                if exprs.is_empty() {
+                    "PRINT".to_string()
+                } else {
+                    format!(
+                        "PRINT {}",
+                        exprs
+                            .iter()
+                            .map(Self::format_expression)
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    )
+                }
+            }
+            AstNode::Input(vars) => format!("INPUT {}", vars.join(", ")),
+            AstNode::Let(name, expr) => format!("LET {} = {}", name, Self::format_expression(expr)),
+            AstNode::ArrayAssign(name, idx, expr) => format!(
+                "LET {}({}) = {}",
+                name,
+                idx.iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Self::format_expression(expr)
+            ),
+            AstNode::If(cond, then_nodes, else_nodes) => {
+                let then_part = then_nodes
+                    .iter()
+                    .map(Self::format_statement)
+                    .collect::<Vec<_>>()
+                    .join(" : ");
+                if let Some(else_stmts) = else_nodes {
+                    let else_part = else_stmts
+                        .iter()
+                        .map(Self::format_statement)
+                        .collect::<Vec<_>>()
+                        .join(" : ");
+                    format!(
+                        "IF {} THEN {} ELSE {}",
+                        Self::format_expression(cond),
+                        then_part,
+                        else_part
+                    )
+                } else {
+                    format!("IF {} THEN {}", Self::format_expression(cond), then_part)
+                }
+            }
+            AstNode::For(var, start, end, step) => {
+                if let Some(step_expr) = step {
+                    format!(
+                        "FOR {} = {} TO {} STEP {}",
+                        var,
+                        Self::format_expression(start),
+                        Self::format_expression(end),
+                        Self::format_expression(step_expr)
+                    )
+                } else {
+                    format!(
+                        "FOR {} = {} TO {}",
+                        var,
+                        Self::format_expression(start),
+                        Self::format_expression(end)
+                    )
+                }
+            }
+            AstNode::Next(var) => {
+                if var.is_empty() {
+                    "NEXT".to_string()
+                } else {
+                    format!("NEXT {}", var)
+                }
+            }
+            AstNode::While(expr) => format!("WHILE {}", Self::format_expression(expr)),
+            AstNode::Wend => "WEND".to_string(),
+            AstNode::Goto(line) => format!("GOTO {}", line),
+            AstNode::Gosub(line) => format!("GOSUB {}", line),
+            AstNode::Return => "RETURN".to_string(),
+            AstNode::End => "END".to_string(),
+            AstNode::Stop => "STOP".to_string(),
+            AstNode::Dim(name, dims) => format!(
+                "DIM {}({})",
+                name,
+                dims.iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            AstNode::Read(vars) => format!("READ {}", vars.join(", ")),
+            AstNode::Data(values) => format!(
+                "DATA {}",
+                values
+                    .iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            AstNode::Restore(Some(line)) => format!("RESTORE {}", line),
+            AstNode::Restore(None) => "RESTORE".to_string(),
+            AstNode::Rem(text) => {
+                if text.is_empty() {
+                    "REM".to_string()
+                } else {
+                    format!("REM {}", text)
+                }
+            }
+            AstNode::Cls => "CLS".to_string(),
+            AstNode::Locate(row, col) => format!(
+                "LOCATE {}, {}",
+                Self::format_expression(row),
+                Self::format_expression(col)
+            ),
+            AstNode::Color(fg, bg) => {
+                let fg_part = fg
+                    .as_ref()
+                    .map(|n| Self::format_expression(n))
+                    .unwrap_or_default();
+                let bg_part = bg
+                    .as_ref()
+                    .map(|n| Self::format_expression(n))
+                    .unwrap_or_default();
+                if fg.is_some() || bg.is_some() {
+                    format!("COLOR {}, {}", fg_part, bg_part)
+                } else {
+                    "COLOR".to_string()
+                }
+            }
+            AstNode::Screen(mode) => format!("SCREEN {}", Self::format_expression(mode)),
+            AstNode::Width(width) => format!("WIDTH {}", Self::format_expression(width)),
+            AstNode::Pset(x, y, color) => {
+                if let Some(c) = color {
+                    format!(
+                        "PSET ({}, {}), {}",
+                        Self::format_expression(x),
+                        Self::format_expression(y),
+                        Self::format_expression(c)
+                    )
+                } else {
+                    format!(
+                        "PSET ({}, {})",
+                        Self::format_expression(x),
+                        Self::format_expression(y)
+                    )
+                }
+            }
+            AstNode::DrawLine(x1, y1, x2, y2, color) => {
+                if let Some(c) = color {
+                    format!(
+                        "LINE ({}, {})-({}, {}), {}",
+                        Self::format_expression(x1),
+                        Self::format_expression(y1),
+                        Self::format_expression(x2),
+                        Self::format_expression(y2),
+                        Self::format_expression(c)
+                    )
+                } else {
+                    format!(
+                        "LINE ({}, {})-({}, {})",
+                        Self::format_expression(x1),
+                        Self::format_expression(y1),
+                        Self::format_expression(x2),
+                        Self::format_expression(y2)
+                    )
+                }
+            }
+            AstNode::Circle(x, y, r, color) => {
+                if let Some(c) = color {
+                    format!(
+                        "CIRCLE ({}, {}), {}, {}",
+                        Self::format_expression(x),
+                        Self::format_expression(y),
+                        Self::format_expression(r),
+                        Self::format_expression(c)
+                    )
+                } else {
+                    format!(
+                        "CIRCLE ({}, {}), {}",
+                        Self::format_expression(x),
+                        Self::format_expression(y),
+                        Self::format_expression(r)
+                    )
+                }
+            }
+            AstNode::Beep => "BEEP".to_string(),
+            AstNode::Sound(freq, dur) => format!(
+                "SOUND {}, {}",
+                Self::format_expression(freq),
+                Self::format_expression(dur)
+            ),
+            AstNode::Open(filename, file_num, mode) => {
+                format!(
+                    "OPEN \"{}\" FOR {} AS #{}",
+                    filename,
+                    mode,
+                    Self::format_expression(file_num)
+                )
+            }
+            AstNode::Close(nums) => {
+                if nums.is_empty() {
+                    "CLOSE".to_string()
+                } else {
+                    format!(
+                        "CLOSE {}",
+                        nums.iter()
+                            .map(|n| format!("#{}", n))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            }
+            AstNode::Reset => "RESET".to_string(),
+            AstNode::PrintFile(file_num, exprs) => format!(
+                "PRINT# {}, {}",
+                Self::format_expression(file_num),
+                exprs
+                    .iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            AstNode::InputFile(file_num, vars) => format!(
+                "INPUT# {}, {}",
+                Self::format_expression(file_num),
+                vars.join(", ")
+            ),
+            AstNode::WriteFile(file_num, exprs) => format!(
+                "WRITE# {}, {}",
+                Self::format_expression(file_num),
+                exprs
+                    .iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            AstNode::LineInput(vars) => format!("LINE INPUT {}", vars.join(", ")),
+            AstNode::LineInputFile(file_num, var) => {
+                format!("LINE INPUT #{} {}", Self::format_expression(file_num), var)
+            }
+            AstNode::List(start, end) => match (start, end) {
+                (Some(s), Some(e)) => format!("LIST {}-{}", s, e),
+                (Some(s), None) => format!("LIST {}", s),
+                (None, Some(e)) => format!("LIST -{}", e),
+                (None, None) => "LIST".to_string(),
+            },
+            AstNode::New => "NEW".to_string(),
+            AstNode::Run(Some(line)) => format!("RUN {}", line),
+            AstNode::Run(None) => "RUN".to_string(),
+            AstNode::Load(filename) => format!("LOAD \"{}\"", filename),
+            AstNode::Save(filename) => format!("SAVE \"{}\"", filename),
+            AstNode::Merge(filename) => format!("MERGE \"{}\"", filename),
+            AstNode::Chain(filename, Some(line)) => format!("CHAIN \"{}\", {}", filename, line),
+            AstNode::Chain(filename, None) => format!("CHAIN \"{}\"", filename),
+            AstNode::Cont => "CONT".to_string(),
+            AstNode::Randomize(Some(seed)) => format!("RANDOMIZE {}", Self::format_expression(seed)),
+            AstNode::Randomize(None) => "RANDOMIZE".to_string(),
+            AstNode::Swap(v1, v2) => format!("SWAP {}, {}", v1, v2),
+            AstNode::Clear => "CLEAR".to_string(),
+            AstNode::Erase(vars) => format!("ERASE {}", vars.join(", ")),
+            AstNode::Write(exprs) => format!(
+                "WRITE {}",
+                exprs
+                    .iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => format!("{:?}", node),
+        }
+    }
+
+    fn format_expression(node: &AstNode) -> String {
+        match node {
+            AstNode::Literal(Value::String(s)) => format!("\"{}\"", s),
+            AstNode::Literal(v) => v.to_string(),
+            AstNode::Variable(name) => name.clone(),
+            AstNode::FunctionCall(name, args) => format!(
+                "{}({})",
+                name,
+                args.iter()
+                    .map(Self::format_expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            AstNode::UnaryOp(UnaryOperator::Negate, expr) => {
+                format!("-{}", Self::format_expression(expr))
+            }
+            AstNode::UnaryOp(UnaryOperator::Not, expr) => {
+                format!("NOT {}", Self::format_expression(expr))
+            }
+            AstNode::BinaryOp(op, left, right) => {
+                let op_str = match op {
+                    BinaryOperator::Add => "+",
+                    BinaryOperator::Subtract => "-",
+                    BinaryOperator::Multiply => "*",
+                    BinaryOperator::Divide => "/",
+                    BinaryOperator::IntDivide => "\\",
+                    BinaryOperator::Mod => "MOD",
+                    BinaryOperator::Power => "^",
+                    BinaryOperator::Equal => "=",
+                    BinaryOperator::NotEqual => "<>",
+                    BinaryOperator::LessThan => "<",
+                    BinaryOperator::GreaterThan => ">",
+                    BinaryOperator::LessEqual => "<=",
+                    BinaryOperator::GreaterEqual => ">=",
+                    BinaryOperator::And => "AND",
+                    BinaryOperator::Or => "OR",
+                    BinaryOperator::Xor => "XOR",
+                    BinaryOperator::Eqv => "EQV",
+                    BinaryOperator::Imp => "IMP",
+                };
+                format!(
+                    "{} {} {}",
+                    Self::format_expression(left),
+                    op_str,
+                    Self::format_expression(right)
+                )
+            }
+            _ => format!("{:?}", node),
+        }
     }
 
     fn execute_dim(&mut self, name: String, dimensions: Vec<AstNode>) -> Result<()> {
@@ -2022,5 +2475,66 @@ mod tests {
         interp.run_stored_program().unwrap();
         // X = 1, so should call 100, then return and set Y = 99
         assert_eq!(interp.variables.get("Y").unwrap().as_integer().unwrap(), 99);
+    }
+
+    #[test]
+    fn test_load_program_replaces_lines() {
+        let mut interp = Interpreter::new();
+        let code = "10 PRINT \"OLD\"\n20 END";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        interp.execute(ast).unwrap();
+        interp.execute_node(AstNode::Load("examples/hello.bas".to_string())).unwrap();
+
+        // hello.bas has lines 10..50 and replaces existing program.
+        assert!(interp.lines.contains_key(&10));
+        assert!(interp.lines.contains_key(&20));
+        assert!(interp.lines.contains_key(&30));
+        assert!(interp.lines.contains_key(&40));
+        assert!(interp.lines.contains_key(&50));
+
+        // Line 10 should now be REM from hello.bas, not the previous PRINT.
+        match interp.lines.get(&10).and_then(|s| s.first()) {
+            Some(AstNode::Rem(_)) => {}
+            other => panic!("Expected line 10 REM after LOAD, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_save_then_load_roundtrip() {
+        let mut interp = Interpreter::new();
+        let source = "10 LET A = 42\n20 PRINT A\n30 END";
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        interp.execute(ast).unwrap();
+
+        let tmp = std::env::temp_dir().join("gwbasic_save_load_roundtrip.bas");
+        let tmp_str = tmp.to_string_lossy().to_string();
+        let save_stmt = AstNode::Save(tmp_str.clone());
+        interp.execute_node(save_stmt).unwrap();
+
+        let mut loaded = Interpreter::new();
+        loaded.execute_node(AstNode::Load(tmp_str.clone())).unwrap();
+
+        assert!(loaded.lines.contains_key(&10));
+        assert!(loaded.lines.contains_key(&20));
+        assert!(loaded.lines.contains_key(&30));
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[test]
+    fn test_run_after_load_executes_program() {
+        let mut interp = Interpreter::new();
+        interp
+            .execute_node(AstNode::Load("examples/hello.bas".to_string()))
+            .unwrap();
+        // Should execute loaded program and end cleanly.
+        assert!(interp.execute_node(AstNode::Run(None)).is_ok());
     }
 }

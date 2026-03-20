@@ -317,6 +317,16 @@ impl Parser {
                 };
                 Ok(AstNode::Run(start_line))
             }
+            TokenType::Load => self.parse_load(),
+            TokenType::Save => self.parse_save(),
+            TokenType::Merge => self.parse_merge(),
+            TokenType::Chain => self.parse_chain(),
+            TokenType::Open => self.parse_open(),
+            TokenType::Close => self.parse_close(),
+            TokenType::Reset => {
+                self.advance();
+                Ok(AstNode::Reset)
+            }
             TokenType::Write => {
                 self.advance();
                 // Check if it's WRITE# (file output)
@@ -957,6 +967,136 @@ impl Parser {
         Ok(AstNode::Input(vars))
     }
 
+    fn parse_filename_argument(&mut self, command: &str) -> Result<String> {
+        match &self.current_token().token_type {
+            TokenType::String(filename) => {
+                let name = filename.clone();
+                self.advance();
+                Ok(name)
+            }
+            TokenType::Identifier(filename) => {
+                let name = filename.clone();
+                self.advance();
+                Ok(name)
+            }
+            _ => Err(Error::SyntaxError(format!(
+                "Expected filename after {}",
+                command
+            ))),
+        }
+    }
+
+    fn parse_load(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip LOAD
+        let filename = self.parse_filename_argument("LOAD")?;
+
+        // Optional `,R` is accepted but ignored in this simplified parser.
+        if let TokenType::Comma = self.current_token().token_type {
+            self.advance();
+            if let TokenType::Identifier(_) = self.current_token().token_type {
+                self.advance();
+            }
+        }
+
+        Ok(AstNode::Load(filename))
+    }
+
+    fn parse_save(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip SAVE
+        let filename = self.parse_filename_argument("SAVE")?;
+        Ok(AstNode::Save(filename))
+    }
+
+    fn parse_merge(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip MERGE
+        let filename = self.parse_filename_argument("MERGE")?;
+        Ok(AstNode::Merge(filename))
+    }
+
+    fn parse_chain(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip CHAIN
+        let filename = self.parse_filename_argument("CHAIN")?;
+
+        let start_line = if let TokenType::Comma = self.current_token().token_type {
+            self.advance();
+            if let TokenType::Integer(n) = self.current_token().token_type {
+                self.advance();
+                Some(n as u32)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(AstNode::Chain(filename, start_line))
+    }
+
+    fn parse_open(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip OPEN
+        let filename = self.parse_filename_argument("OPEN")?;
+
+        let mut mode = "OUTPUT".to_string();
+        if matches!(
+            self.current_token().token_type,
+            TokenType::For | TokenType::ForMode
+        ) {
+            self.advance();
+            mode = match &self.current_token().token_type {
+                TokenType::Input => "INPUT".to_string(),
+                TokenType::Output => "OUTPUT".to_string(),
+                TokenType::Append => "APPEND".to_string(),
+                TokenType::Random => "RANDOM".to_string(),
+                TokenType::Binary => "BINARY".to_string(),
+                TokenType::Identifier(name) => name.to_uppercase(),
+                _ => {
+                    return Err(Error::SyntaxError(
+                        "Expected file mode after OPEN ... FOR".to_string(),
+                    ))
+                }
+            };
+            self.advance();
+        }
+
+        if let TokenType::As = self.current_token().token_type {
+            self.advance();
+        }
+        if let TokenType::Hash = self.current_token().token_type {
+            self.advance();
+        }
+
+        let file_num = self.parse_expression()?;
+        Ok(AstNode::Open(filename, Box::new(file_num), mode))
+    }
+
+    fn parse_close(&mut self) -> Result<AstNode> {
+        self.advance(); // Skip CLOSE
+        let mut file_nums = Vec::new();
+
+        while !self.is_at_end() {
+            match &self.current_token().token_type {
+                TokenType::Newline | TokenType::Colon | TokenType::Eof => break,
+                TokenType::Comma => {
+                    self.advance();
+                }
+                TokenType::Hash => {
+                    self.advance();
+                }
+                TokenType::Integer(n) => {
+                    file_nums.push(*n);
+                    self.advance();
+                }
+                _ => {
+                    return Err(Error::SyntaxError(
+                        "Expected file number in CLOSE statement".to_string(),
+                    ))
+                }
+            }
+        }
+
+        Ok(AstNode::Close(file_nums))
+    }
+
     fn parse_dim(&mut self) -> Result<AstNode> {
         self.advance(); // Skip DIM
 
@@ -1491,6 +1631,58 @@ mod tests {
                         assert_eq!(*line, 200);
                     }
                     _ => panic!("Expected Goto node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_load_statement() {
+        let mut lexer = Lexer::new(r#"LOAD "examples/hello.bas""#);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                match &lines[0] {
+                    AstNode::Load(filename) => {
+                        assert_eq!(filename, "examples/hello.bas");
+                    }
+                    _ => panic!("Expected Load node, got {:?}", lines[0]),
+                }
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_open_and_close() {
+        let mut lexer = Lexer::new(r#"OPEN "tmp.txt" FOR OUTPUT AS #1: CLOSE #1"#);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        match ast {
+            AstNode::Program(lines) => {
+                assert_eq!(lines.len(), 1);
+                let stmts = match &lines[0] {
+                    AstNode::Program(stmts) => stmts,
+                    other => panic!("Expected nested Program node, got {:?}", other),
+                };
+                assert_eq!(stmts.len(), 2);
+                match &stmts[0] {
+                    AstNode::Open(filename, _, mode) => {
+                        assert_eq!(filename, "tmp.txt");
+                        assert_eq!(mode, "OUTPUT");
+                    }
+                    _ => panic!("Expected Open node, got {:?}", stmts[0]),
+                }
+                match &stmts[1] {
+                    AstNode::Close(nums) => assert_eq!(nums, &vec![1]),
+                    _ => panic!("Expected Close node, got {:?}", stmts[1]),
                 }
             }
             _ => panic!("Expected Program node"),
